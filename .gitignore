@@ -1,0 +1,34 @@
+# Environment
+.env
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+wheels/
+*.egg-info
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# uv / pip
+.python-version
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Output / data directories
+results/
+data/
+
+# Logs
+*.log
