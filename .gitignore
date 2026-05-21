@@ -30,5 +30,19 @@ venv/
 results/
 data/
 
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
+# Compiled Go binaries
+**/compute_virality
+**/ingest
+**/ingest-parallel
+
+# Large TSV/CSV dumps (not in results/)
+*.tsv
+*.csv
+
 # Logs
 *.log

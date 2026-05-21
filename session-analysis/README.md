@@ -10,26 +10,31 @@ reposts, posts authored).
 
 | File | Description |
 |------|-------------|
-| `session_engagement_analysis.py` | Main analysis script |
-| `load_to_sqlite.py` | Loads CSV results into `sessions.db` (SQLite) |
-| `users.txt` | 3,086,991 unique DIDs (one per line) |
-| `session_engagement_results.csv` | Output: 29.3M session rows with engagement metrics |
-| `sessions.db` | SQLite database (same data, indexed for querying) |
-| `run.log` | Run log with final summary statistics |
+| `session_engagement_analysis.py` | Main analysis script (populates `pau_db.sessions_tukey`) |
+| `session_distribution_fit.R` | Per-user distribution fitting on session durations & gaps |
+| `session_distribution_fit.py` | Python version of the distribution fitting (experimental) |
+| `export_sessions_csv.py` | Exports `sessions_tukey` / `sessions_threshold_total` to CSV for R |
+| `results/users.txt` | 3,086,991 unique DIDs (all users; pre-filtering snapshot) |
+| `results/session_engagement_results.csv` | Output: ~29M session rows (historical all-users run) |
+| `results/per_user_fits.csv` | Per-user distribution fit results |
 
 ---
 
 ## Data sources
 
-All user actions come from the `bsky` database at `10.18.74.14:9030`:
+All user actions come from the `bsky` database at `10.18.74.14:9030`.
+Only users in `pau_db.user_core_events_human` (6–500 core events, 815,271 users)
+are processed — tourists (≤5 events, 52.7% of users) and suspected bot accounts
+(501+ events, 0.8%) are excluded per the EDA filtering strategy
+(see `eda/README.md`). Each user's complete action timeline is extracted (all
+`bsky.records` collections plus `bsky.posts`) via `UNION ALL`, sorted by
+`time_us`, and clustered into sessions.
 
 | Source | What | Rows |
 |--------|------|------|
 | `bsky.records` (collection=`app.bsky.feed.like`) | Likes | 161.7M |
 | `bsky.records` (collection=`app.bsky.feed.repost`) | Reposts | 26.4M |
 | `bsky.posts` | Posts authored | 28.1M |
-
-These are extracted per-user, sorted by time, and clustered into sessions.
 
 ---
 
@@ -130,7 +135,11 @@ Vary it to model different browsing behaviors:
 
 ## Results summary
 
-Computed across **3,086,991 users** → **2,281,225 active users** (≥2 actions) → **29.3M sessions**.
+Computed across **815,271 human-range users** (6–500 core events) → **28.2M sessions**,
+written to `pau_db.sessions_tukey`.
+
+See `docs/session-distribution-fitting.md` for per-user distribution fitting
+results (power-law dominates: 71% of durations, 74% of gaps).
 
 | Metric | Median | Mean | P25 | P75 |
 |--------|--------|------|-----|-----|
@@ -145,56 +154,29 @@ Computed across **3,086,991 users** → **2,281,225 active users** (≥2 actions
 
 ---
 
-## Database schema (`sessions.db`)
+## Database (`pau_db.sessions_tukey`)
 
-```sql
-CREATE TABLE sessions (
-    did              TEXT NOT NULL,      -- User identifier (DID)
-    session_start    INTEGER NOT NULL,   -- Session start (microseconds since epoch)
-    session_end      INTEGER NOT NULL,   -- Session end (microseconds since epoch)
-    duration_s       REAL NOT NULL,      -- Duration in seconds
-    likes            INTEGER NOT NULL,   -- Likes given during session
-    reposts          INTEGER NOT NULL,   -- Reposts made during session
-    posts_authored   INTEGER NOT NULL,   -- Posts created during session
-    interactions     INTEGER NOT NULL,   -- likes + reposts (convenience column)
-    user_threshold_s REAL NOT NULL,      -- Per-user adaptive gap threshold (seconds)
-    user_threshold_fallback INTEGER NOT NULL,  -- 1 if fallback threshold was used
-    user_gap_count   INTEGER NOT NULL    -- Number of inter-event gaps for this user
-);
-```
-
-Indexed on `did` and `session_start` for fast user-level and time-range queries.
+Results are stored in StarRocks. See `docs/database-data-description.md` for
+the full schema. Key columns: `did`, `session_start`, `session_end`,
+`next_session_start`, `duration_s`, `likes`, `reposts`, `posts_authored`,
+`follows`, `other_actions`, `interactions`, `total_actions`,
+`user_threshold_s`, `user_threshold_fallback`, `user_gap_count`.
 
 ---
 
 ## Usage
 
 ```bash
-# Run the analysis (already done; results in session_engagement_results.csv):
-uv run session-metrics/session_engagement_analysis.py \
-  --did-file session-metrics/users.txt \
-  --summary \
-  -o session-metrics/session_engagement_results.csv \
-  2> session-metrics/run.log
+# Populate the session table (human-range users):
+uv run session-analysis/session_engagement_analysis.py \
+  --min-events 6 --max-events 500 --summary
 
-# Load into SQLite for querying:
-uv run session-metrics/load_to_sqlite.py
+# Export to CSV for R analysis:
+uv run session-analysis/export_sessions_csv.py --tables sessions_tukey
 
-# Then query with sqlite3:
-sqlite3 session-metrics/sessions.db
-
-# Key parameters:
-#   -s 5     avg seconds viewing one post (default: 5)
-#   -f 4     floor unseen posts per session (default: 4)
-#   -q 1.5   IQR multiplier for Tukey's fences (default: 1.5)
-#   -G 60    fallback gap in minutes for sparse users (default: 60)
-
-# Example: sensitivity analysis across different viewing speeds
-for s in 2 5 10 15; do
-    uv run session-metrics/session_engagement_analysis.py \
-      --did-file session-metrics/users.txt \
-      --summary -s $s -o /dev/null 2>&1 | grep -A6 "Engagement rate"
-done
+# Distribution fitting (R):
+Rscript session-analysis/session_distribution_fit.R \
+  --sample 0 --cores 32 --tables sessions_tukey
 ```
 
 ---
@@ -252,4 +234,6 @@ ORDER BY MIN(n);
 
 ---
 
-*Analysis run 2026-05-15. IQR multiplier=1.5, avg_view_time=5s/post, floor_posts=4.*
+*Human-range run: 2026-05-17. 815,271 users, 28.2M sessions.*  
+*Earlier all-users run: 2026-05-15. 3.09M DIDs, 2.28M active, 29.3M sessions.*
+*IQR multiplier=1.5, avg_view_time=5s/post, floor_posts=4.*
