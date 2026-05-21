@@ -36,13 +36,9 @@ data/
 *.db-shm
 
 # Compiled Go binaries
-**/compute_virality
-**/ingest
-**/ingest-parallel
-
-# Large TSV/CSV dumps (not in results/)
-*.tsv
-*.csv
+compute_virality
+**/ingest/ingest
+**/ingest-parallel/ingest-parallel
 
 # Logs
 *.log
