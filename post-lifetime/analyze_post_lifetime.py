@@ -29,7 +29,6 @@ Usage:
 """
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -37,38 +36,24 @@ import numpy as np
 import pymysql
 
 # ---------------------------------------------------------------------------
-# Environment & config
+# Config
 # ---------------------------------------------------------------------------
 
-def _load_env_file():
-    candidates = [
-        Path(__file__).resolve().parent.parent / ".env",
-        Path.cwd() / ".env",
-    ]
-    for f in candidates:
-        if f.exists():
-            with open(f) as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    key, _, val = line.partition("=")
-                    key = key.strip()
-                    val = val.strip().strip('"').strip("'")
-                    if key and val and key not in os.environ:
-                        os.environ[key] = val
-            return
-
-_load_env_file()
-
-def _env(key: str, default: str = "") -> str:
-    return os.environ.get(key, default)
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+_ENV = {}
+if ENV_PATH.exists():
+    for line in ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, val = line.partition("=")
+            key = key.strip()
+            _ENV[key] = val.strip().strip('"').strip("'")
 
 DB_CONFIG = {
-    "host": _env("DATABASE_HOST", "10.18.74.14"),
-    "port": int(_env("DATABASE_PORT", "9030")),
-    "user": _env("DATABASE_USER", "pau"),
-    "password": _env("PAU_PASSWORD", ""),
+    "host": _ENV.get("DATABASE_HOST", "10.18.74.14"),
+    "port": int(_ENV.get("DATABASE_PORT", "9030")),
+    "user": _ENV.get("DATABASE_USER", "pau"),
+    "password": _ENV.get("PAU_PASSWORD", ""),
     "database": "pau_db",
     "charset": "utf8mb4",
 }

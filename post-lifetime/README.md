@@ -50,59 +50,49 @@ full engagement timeline for any post.
 
 ---
 
+## Pipeline
+
+```
+1. sql/                              # Create the two DB tables
+2. analyze_post_lifetime.py          # Basic stats + histogram/CDF plots
+3. eda/                              # Deep-dive: power-law fits, decay, cascade
+   ├── fit_powerlaw_counts.py        # Phase 1 — engagement count distributions
+   ├── fit_powerlaw_lifetimes.py     # Phase 2a — lifetime distributions
+   ├── temporal_decay.py             # Phase 2b — engagement arrival rate
+   ├── time_to_first.py              # Phase 3 — time-to-first-engagement
+   └── cascade_ordering.py           # Phase 6 — what comes first?
+   Results: eda/results.md
+```
+
+## Quick start
+
+```bash
+# 1. Create tables
+mysql -h 10.18.74.14 -P 9030 -u pau -p < post-lifetime/sql/01_create_post_lifetime.sql
+mysql -h 10.18.74.14 -P 9030 -u pau -p < post-lifetime/sql/02_create_post_engagement_events.sql
+mysql -h 10.18.74.14 -P 9030 -u pau -p < post-lifetime/sql/03_populate_post_lifetime.sql
+mysql -h 10.18.74.14 -P 9030 -u pau -p < post-lifetime/sql/04_populate_post_engagement_events.sql
+
+# 2. Basic analysis
+uv run post-lifetime/analyze_post_lifetime.py
+
+# 3. Deep-dive EDA
+uv run post-lifetime/eda/fit_powerlaw_counts.py
+uv run post-lifetime/eda/fit_powerlaw_lifetimes.py
+uv run post-lifetime/eda/temporal_decay.py
+uv run post-lifetime/eda/time_to_first.py
+uv run post-lifetime/eda/cascade_ordering.py
+```
+
 ## SQL scripts
 
 | Script | Purpose |
 |--------|---------|
-| `create_post_lifetime_table.sql` | CREATE TABLE (fresh start) |
-| `migrate_add_first_columns.sql` | ALTER + DELETE (run once if upgrading from v1) |
-| `populate_post_lifetime.sql` | INSERT ~15.3M rows |
-| `create_post_engagement_events.sql` | CREATE TABLE for raw events |
-| `populate_post_engagement_events.sql` | INSERT ~140M event rows |
-
-## Usage
-
-### Fresh start
-
-```bash
-mysql -h 10.18.74.14 -P 9030 -u pau -p \
-  < post-lifetime/sql-scripts/create_post_lifetime_table.sql
-mysql -h 10.18.74.14 -P 9030 -u pau -p \
-  < post-lifetime/sql-scripts/populate_post_lifetime.sql
-mysql -h 10.18.74.14 -P 9030 -u pau -p \
-  < post-lifetime/sql-scripts/create_post_engagement_events.sql
-mysql -h 10.18.74.14 -P 9030 -u pau -p \
-  < post-lifetime/sql-scripts/populate_post_engagement_events.sql
-```
-
-### Upgrade from v1 (add first_* columns)
-
-```bash
-mysql -h 10.18.74.14 -P 9030 -u pau -p \
-  < post-lifetime/sql-scripts/migrate_add_first_columns.sql
-mysql -h 10.18.74.14 -P 9030 -u pau -p \
-  < post-lifetime/sql-scripts/populate_post_lifetime.sql
-```
-
-### Analysis
-
-```bash
-uv run post-lifetime/analyze_post_lifetime.py
-uv run post-lifetime/analyze_post_lifetime.py --no-plots
-```
-
----
-
-## EDA plan (next steps in `post-lifetime/eda/`)
-
-| Script | Phase | Data source |
-|--------|-------|-------------|
-| `fit_powerlaw_counts.py` | Phase 1 | `post_lifetime` (total_* columns) |
-| `fit_powerlaw_lifetimes.py` | Phase 2a | `post_lifetime` (last_engagement_us − created_at) |
-| `temporal_decay.py` | Phase 2b | `post_engagement_events` (per-post event timelines) |
-| `time_to_first.py` | Phase 3 | `post_lifetime` (first_* − created_at) |
-| `cascade_ordering.py` | Phase 6 | `post_engagement_events` (event_type sequences) |
-| `correlates.py` | Phase 5 | `post_lifetime` + `bsky.posts` + `pau_db.users` |
+| `sql/01_create_post_lifetime.sql` | CREATE TABLE (fresh start) |
+| `sql/02_create_post_engagement_events.sql` | CREATE TABLE for raw events |
+| `sql/03_populate_post_lifetime.sql` | INSERT ~15.3M rows |
+| `sql/04_populate_post_engagement_events.sql` | INSERT ~140M event rows |
+| `sql/05_migrate_first_columns.sql` | ALTER + DELETE (run once if upgrading from v1) |
 
 ---
 

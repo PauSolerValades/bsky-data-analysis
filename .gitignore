@@ -26,9 +26,19 @@ venv/
 *~
 .DS_Store
 
-# Output / data directories
-results/
-data/
+# Generated output: data, results, plots — always gitignored
+**/data/
+**/data_new/
+**/results/
+**/results_new/
+**/results_pf07_backup/
+**/logs/
+**/plots/
+
+# Large CSV / Parquet / TSV exports
+*.csv
+*.tsv
+*.parquet
 
 # SQLite databases
 *.db
@@ -36,9 +46,22 @@ data/
 *.db-shm
 
 # Compiled Go binaries
-compute_virality
+02_compute_virality
 **/ingest/ingest
 **/ingest-parallel/ingest-parallel
+**/ingest-sorted/ingest
+**/compute_virality
 
 # Logs
 *.log
+
+# JSON exports (large, generated)
+**/firehose_graph.json
+
+# Old deprecated pipeline directories (no longer maintained)
+topology-time-reconstruction/
+topology-crawl/
+session-analysis/
+
+# Topology sampling artifacts
+topology/sampling-go/

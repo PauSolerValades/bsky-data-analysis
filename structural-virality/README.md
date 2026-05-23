@@ -21,27 +21,25 @@ a user saw. No follow graph needed — this is the **true** propagation path.
 ### 1. Dump reposts from StarRocks
 
 ```bash
-cd structural-virality
-mysql -h 10.18.74.14 -P 9030 -u pau -p'...' -N -B < dump_reposts.sql > results/reposts.tsv
+mysql -h 10.18.74.14 -P 9030 -u pau -p'...' -N -B < structural-virality/01_dump_reposts.sql > structural-virality/results/reposts.tsv
 ```
-
-This produces a ~2 GB TSV file (columns: subject_uri, repost_uri, via_uri, actor_did, time_us),
-sorted by `subject_uri, time_us`.
 
 ### 2. Compute structural virality (Go)
 
 ```bash
-./compute_virality results/reposts.tsv results/virality_results.csv
+./structural-virality/02_compute_virality structural-virality/results/reposts.tsv structural-virality/results/virality_results.csv
 ```
-
-Output CSV columns: `post_uri, cascade_size, structural_virality, max_depth`.
-
-Runs in ~2–5 minutes for 25M reposts. Memory: O(largest cascade), ~a few MB.
 
 ### 3. Generate plots (Python)
 
 ```bash
-uv run plot_virality.py
+uv run structural-virality/03_plot_virality.py
+```
+
+## Rebuild Go binary
+
+```bash
+cd structural-virality/go && go build -o ../02_compute_virality .
 ```
 
 Generates 6 plots in `results/`:
