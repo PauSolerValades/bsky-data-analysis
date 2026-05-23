@@ -34,6 +34,7 @@ venv/
 **/results_pf07_backup/
 **/logs/
 **/plots/
+**/results_backup/
 
 # Large CSV / Parquet / TSV exports
 *.csv
@@ -58,10 +59,4 @@ venv/
 # JSON exports (large, generated)
 **/firehose_graph.json
 
-# Old deprecated pipeline directories (no longer maintained)
-topology-time-reconstruction/
-topology-crawl/
-session-analysis/
 
-# Topology sampling artifacts
-topology/sampling-go/
