@@ -28,6 +28,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+plt.style.use("ggplot")
 import numpy as np
 import pandas as pd
 

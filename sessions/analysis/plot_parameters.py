@@ -39,26 +39,10 @@ from scipy.stats import gaussian_kde
 # ── ggplot-like style ──────────────────────────────────────────────────────
 
 def set_ggplot_style():
+    plt.style.use("ggplot")
     plt.rcParams.update({
         "figure.facecolor": "white",
         "axes.facecolor": "#F5F5F5",
-        "axes.edgecolor": "#333333",
-        "axes.grid": True,
-        "axes.grid.axis": "y",
-        "grid.color": "#D3D3D3",
-        "grid.linewidth": 0.5,
-        "grid.alpha": 0.8,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.spines.left": True,
-        "axes.spines.bottom": True,
-        "axes.linewidth": 0.6,
-        "axes.titlesize": 13,
-        "axes.labelsize": 11,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
-        "xtick.color": "#333333",
-        "ytick.color": "#333333",
         "font.family": "sans-serif",
         "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
     })
@@ -66,26 +50,29 @@ def set_ggplot_style():
 
 # ── Parameter definitions ──────────────────────────────────────────────────
 
-# (column_suffix, display_name, log_scale)
+# (column_suffix, display_name, log_scale, clip_upper_pct)
+# clip_upper_pct: percentile at which to clip extreme outliers for visualisation.
+# Set to None for no clipping.  Weibull shape/scale have enormous outliers
+# (k up to 468K, scale up to 256K) that squash the KDE flat.
 PARAMS = {
     "powerlaw": [
-        ("pl_alpha", "α (exponent)", True),
-        ("pl_xmin", "x_min (s)", True),
+        ("pl_alpha", "α (exponent)", True, None),
+        ("pl_xmin", "x_min (s)", True, None),
     ],
     "exponential": [
-        ("exponential_rate", "λ (rate, 1/s)", True),
+        ("exponential_rate", "λ (rate, 1/s)", True, None),
     ],
     "weibull": [
-        ("weibull_shape", "k (shape)", False),
-        ("weibull_scale", "λ (scale, s)", True),
+        ("weibull_shape", "k (shape)", False, 99.5),
+        ("weibull_scale", "λ (scale, s)", True, 99.5),
     ],
     "lognormal": [
-        ("lognormal_meanlog", "μ (meanlog)", False),
-        ("lognormal_sdlog", "σ (sdlog)", False),
+        ("lognormal_meanlog", "μ (meanlog)", False, None),
+        ("lognormal_sdlog", "σ (sdlog)", False, None),
     ],
     "gamma": [
-        ("gamma_shape", "k (shape)", True),
-        ("gamma_rate", "θ (rate)", True),
+        ("gamma_shape", "k (shape)", True, None),
+        ("gamma_rate", "θ (rate)", True, None),
     ],
 }
 
@@ -115,7 +102,7 @@ def export_params_csv(df: pl.DataFrame, prefix: str, output_path: Path):
 
     param_cols = []
     for dist_name in ALL_DIST_NAMES:
-        for suffix, _, _ in PARAMS[dist_name]:
+        for suffix, _, _, _ in PARAMS[dist_name]:
             col = f"{prefix}_{suffix}"
             if col in df.columns:
                 param_cols.append(col)
@@ -138,8 +125,14 @@ def export_params_csv(df: pl.DataFrame, prefix: str, output_path: Path):
 
 # ── Density plotting ───────────────────────────────────────────────────────
 
-def density_plot(values: np.ndarray, log_scale: bool, color: str, ax: plt.Axes):
-    """KDE density with median marker and rug ticks."""
+def density_plot(values: np.ndarray, log_scale: bool, color: str, ax: plt.Axes,
+                clip_upper_pct: float | None = None):
+    """KDE density with median marker and rug ticks.
+
+    clip_upper_pct: if set, clip values above this percentile before plotting.
+        This is useful for heavy-tailed parameter distributions (e.g. Weibull
+        shape/scale) where a few extreme outliers squash the KDE flat.
+    """
     # Cast to float, drop NaN/Inf
     v = values.astype(float, copy=False)
     v = v[np.isfinite(v)]
@@ -147,6 +140,15 @@ def density_plot(values: np.ndarray, log_scale: bool, color: str, ax: plt.Axes):
         ax.text(0.5, 0.5, f"n={len(v)} (too few)", transform=ax.transAxes,
                 ha="center", va="center", fontsize=9, color="#999999")
         return
+
+    n_full = len(v)
+
+    # Optionally clip extreme outliers for visualisation
+    if clip_upper_pct is not None:
+        clip_val = np.percentile(v, clip_upper_pct)
+        orig_len = len(v)
+        v = v[v <= clip_val]
+        n_trimmed = orig_len - len(v)
 
     if log_scale and (v > 0).all():
         v_plot = np.log10(v)
@@ -165,23 +167,29 @@ def density_plot(values: np.ndarray, log_scale: bool, color: str, ax: plt.Axes):
     # rug
     rng = np.random.default_rng(42)
     rug = rng.choice(v_plot, size=min(500, len(v_plot)), replace=False)
-    ylim = ax.get_ylim()
-    ax.plot(rug, np.full_like(rug, -0.02 * ylim[1]), "|",
-            color=color, alpha=0.12, markersize=4)
+    if rug.size > 0:
+        ylim = ax.get_ylim()
+        ax.plot(rug, np.full_like(rug, -0.02 * ylim[1]), "|",
+                color=color, alpha=0.12, markersize=4)
 
-    # median
-    med = np.median(v_plot)
-    ax.axvline(med, color=color, linestyle="--", linewidth=0.8, alpha=0.6)
+    # median line on clipped data (visible range), label on full data
+    med_plot = np.median(v_plot)
+    ax.axvline(med_plot, color=color, linestyle="--", linewidth=0.8, alpha=0.6)
 
-    # annotation
-    if log_scale:
+    # median label from full (unclipped) data
+    med_full = np.median(values[np.isfinite(values)])
+    if log_scale and (values[np.isfinite(values)] > 0).any():
         try:
-            med_label = "%.3g" % (10 ** float(med))
+            med_label = "%.3g" % float(med_full)
         except (OverflowError, ValueError):
-            med_label = "%.3g" % float(med)
+            med_label = "%.3g" % float(med_full)
     else:
-        med_label = "%.3g" % float(np.median(v))
-    ax.text(0.98, 0.95, f"n={len(v):,}\nmed={med_label}",
+        med_label = "%.3g" % float(med_full)
+
+    note_parts = [f"n={n_full:,}", f"med={med_label}"]
+    if clip_upper_pct is not None and n_trimmed > 0:
+        note_parts.append(f"(clipped {n_trimmed:,}>{clip_val:.3g})")
+    ax.text(0.98, 0.95, "\n".join(note_parts),
             transform=ax.transAxes, ha="right", va="top",
             fontsize=7, color="#444444",
             bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
@@ -202,14 +210,14 @@ def make_figure(df: pl.DataFrame, prefix: str, dist_name: str, output_path: Path
     if n == 1:
         axes = [axes]
 
-    for i, (suffix, label, log_scale) in enumerate(params):
+    for i, (suffix, label, log_scale, clip_upper_pct) in enumerate(params):
         col = f"{prefix}_{suffix}"
         if col not in df.columns:
             axes[i].text(0.5, 0.5, "—", transform=axes[i].transAxes,
                          ha="center", va="center")
             continue
         vals = df[col].to_numpy()
-        density_plot(vals, log_scale, color, axes[i])
+        density_plot(vals, log_scale, color, axes[i], clip_upper_pct=clip_upper_pct)
         axes[i].set_xlabel(label, fontsize=10)
         axes[i].set_ylabel("Density", fontsize=9)
 
@@ -227,16 +235,16 @@ def make_figure(df: pl.DataFrame, prefix: str, dist_name: str, output_path: Path
 # One compact figure: five distributions × 2 quantities, arranged as rows
 
 SUMMARIES = [
-    # (col_suffix, xlabel, log_scale, color)
-    ("pl_alpha",           "α (power-law exponent)", True,  COLOR_PL),
-    ("pl_xmin",            "x_min (seconds)",         True,  COLOR_PL),
-    ("exponential_rate",   "λ (exponential rate)",    True,  COLOR_EXP),
-    ("weibull_shape",      "k (Weibull shape)",       False, COLOR_W),
-    ("weibull_scale",      "λ (Weibull scale, s)",    True,  COLOR_W),
-    ("lognormal_meanlog",  "μ (lognormal meanlog)",   False, COLOR_LN),
-    ("lognormal_sdlog",    "σ (lognormal sdlog)",     False, COLOR_LN),
-    ("gamma_shape",        "k (gamma shape)",         True,  COLOR_GA),
-    ("gamma_rate",         "θ (gamma rate)",          True,  COLOR_GA),
+    # (col_suffix, xlabel, log_scale, color, clip_upper_pct)
+    ("pl_alpha",           "α (power-law exponent)", True,  COLOR_PL,  None),
+    ("pl_xmin",            "x_min (seconds)",         True,  COLOR_PL,  None),
+    ("exponential_rate",   "λ (exponential rate)",    True,  COLOR_EXP, None),
+    ("weibull_shape",      "k (Weibull shape)",       False, COLOR_W,   99.5),
+    ("weibull_scale",      "λ (Weibull scale, s)",    True,  COLOR_W,   99.5),
+    ("lognormal_meanlog",  "μ (lognormal meanlog)",   False, COLOR_LN,  None),
+    ("lognormal_sdlog",    "σ (lognormal sdlog)",     False, COLOR_LN,  None),
+    ("gamma_shape",        "k (gamma shape)",         True,  COLOR_GA,  None),
+    ("gamma_rate",         "θ (gamma rate)",          True,  COLOR_GA,  None),
 ]
 
 
@@ -247,7 +255,7 @@ def make_summary_figure(df: pl.DataFrame, output_dir: Path):
 
     for r, (prefix, qlabel) in enumerate([("dur", "Session duration"),
                                             ("gap", "Inter-session gap")]):
-        for c, (suffix, xlabel, log_scale, color) in enumerate(SUMMARIES):
+        for c, (suffix, xlabel, log_scale, color, clip_upper_pct) in enumerate(SUMMARIES):
             ax = axes[r, c]
             col = f"{prefix}_{suffix}"
             if col not in df.columns:
@@ -255,7 +263,7 @@ def make_summary_figure(df: pl.DataFrame, output_dir: Path):
                         ha="center", va="center", fontsize=8)
                 continue
             vals = df[col].to_numpy()
-            density_plot(vals, log_scale, color, ax)
+            density_plot(vals, log_scale, color, ax, clip_upper_pct=clip_upper_pct)
             ax.set_xlabel(xlabel, fontsize=8)
             ax.set_ylabel("", fontsize=8)
             if c == 0:
@@ -334,7 +342,7 @@ def main():
         for dist_name in ALL_DIST_NAMES:
             any_col = any(
                 f"{prefix}_{suffix}" in df.columns
-                for suffix, _, _ in PARAMS[dist_name]
+                for suffix, _, _, _ in PARAMS[dist_name]
             )
             if not any_col:
                 continue

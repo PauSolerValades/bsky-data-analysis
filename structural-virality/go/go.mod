@@ -2,10 +2,7 @@ module github.com/psoler/firehose-analysis/structural-virality
 
 go 1.22.0
 
-require (
-	github.com/go-sql-driver/mysql v1.8.1
-	github.com/parquet-go/parquet-go v0.24.0
-)
+require github.com/parquet-go/parquet-go v0.24.0
 
 require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
@@ -17,7 +14,6 @@ require (
 )
 
 require (
-	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
 	golang.org/x/sys v0.21.0 // indirect
 )

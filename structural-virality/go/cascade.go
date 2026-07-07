@@ -1,5 +1,7 @@
 package main
 
+import "math"
+
 // ─── Raw event from StarRocks query ──────────────────────────────────────
 
 // RawEvent is a single row from the StarRocks query. The query guarantees:
@@ -27,8 +29,9 @@ type Node struct {
 type Cascade struct {
 	PostURI    string
 	Nodes      []Node
-	ChildStart []int // CSR offsets; ChildStart[i]..ChildStart[i+1] = children of i
-	Children   []int // flattened child indices
+	ChildStart []int   // CSR offsets
+	Children   []int   // flattened child indices
+	parentIdx  []int   // parentIdx[i] = parent node index; parentIdx[0] = -1
 }
 
 // NumNodes returns the total number of nodes including root.
@@ -45,8 +48,19 @@ func (c *Cascade) ChildrenOf(i int) []int {
 	return c.Children[c.ChildStart[i]:c.ChildStart[i+1]]
 }
 
+// ParentDIDOf returns the DID of the parent of node i, or empty for root.
+func (c *Cascade) ParentDIDOf(i int) string {
+	if i <= 0 || i >= len(c.parentIdx) {
+		return ""
+	}
+	p := c.parentIdx[i]
+	if p < 0 || p >= len(c.Nodes) {
+		return ""
+	}
+	return c.Nodes[p].ActorDID
+}
+
 // BuildCascade constructs a CSR cascade tree from the raw events.
-// The first event MUST be a creation (root). Remaining events are reposts.
 func BuildCascade(postURI string, events []RawEvent) *Cascade {
 	n := len(events)
 	if n == 0 {
@@ -57,24 +71,22 @@ func BuildCascade(postURI string, events []RawEvent) *Cascade {
 		PostURI:    postURI,
 		Nodes:      make([]Node, n),
 		ChildStart: make([]int, n+1),
-		Children:   make([]int, n-1), // all events except root are children
+		Children:   make([]int, n-1),
+		parentIdx:  make([]int, n),
 	}
 
 	// Root = index 0
 	c.Nodes[0] = Node{ActorDID: events[0].ActorDID, TimeUS: events[0].TimeUS}
+	c.parentIdx[0] = -1
 
-	// Map repost_uri → index for via-URI parent lookups.
-	// Also map actor_did → index (the *last* occurrence wins, which is fine
-	// because a user reposting the same post multiple times is rare and any
-	// via reference to them will point to the latest repost URI anyway).
+	// Map repost_uri → index for via-URI parent lookups
 	uriToIdx := make(map[string]int, n)
-
 	for i := 1; i < n; i++ {
 		c.Nodes[i] = Node{ActorDID: events[i].ActorDID, TimeUS: events[i].TimeUS}
 		uriToIdx[events[i].RepostURI] = i
 	}
 
-	// Pass 1: count children per parent
+	// Pass 1: resolve parents and count children
 	childCount := make([]int, n)
 	for i := 1; i < n; i++ {
 		parentIdx := 0 // default: attach to root
@@ -83,6 +95,7 @@ func BuildCascade(postURI string, events []RawEvent) *Cascade {
 				parentIdx = idx
 			}
 		}
+		c.parentIdx[i] = parentIdx
 		childCount[parentIdx]++
 	}
 
@@ -97,12 +110,7 @@ func BuildCascade(postURI string, events []RawEvent) *Cascade {
 	// Pass 2: fill Children
 	writePos := make([]int, n)
 	for i := 1; i < n; i++ {
-		parentIdx := 0
-		if events[i].ViaURI != "" {
-			if idx, ok := uriToIdx[events[i].ViaURI]; ok {
-				parentIdx = idx
-			}
-		}
+		parentIdx := c.parentIdx[i]
 		pos := c.ChildStart[parentIdx] + writePos[parentIdx]
 		c.Children[pos] = i
 		writePos[parentIdx]++
@@ -122,13 +130,7 @@ func (c *Cascade) Size() int { return c.NumNodes() }
 // MaxOutDegree returns the maximum children count of any node.
 func (c *Cascade) MaxOutDegree() int { return c.maxOutDegree(0) }
 
-// StructuralVirality returns the Wiener-index-based structural virality ν(T)
-// from Goel et al. (2016). Uses the subtree-crossing formula:
-//
-//	ν(T) = 2 · Σ (sub · (n - sub)) / (n · (n - 1))
-//
-// where the sum is over all edges (parent→child) and sub is the size of the
-// child's subtree. Single-node cascades return 0.
+// StructuralVirality returns the Wiener-index-based structural virality ν(T).
 func (c *Cascade) StructuralVirality() float64 {
 	n := c.NumNodes()
 	if n <= 1 {
@@ -163,19 +165,17 @@ func (c *Cascade) maxOutDegree(i int) int {
 
 // ─── Broadcast group analysis ────────────────────────────────────────────
 
-// BroadcastGroup holds metrics for a single parent's children within a cascade.
 type BroadcastGroup struct {
-	PostURI         string
-	ParentDID       string
-	BroadcastSize   int
-	MeanGapUS       float64
-	MedianGapUS     float64
-	GapTrend        float64
+	PostURI          string
+	ParentDID        string
+	BroadcastSize    int
+	MeanGapUS        float64
+	MedianGapUS      float64
+	GapTrend         float64
 	FirstChildTimeUS int64
 	LastChildTimeUS  int64
 }
 
-// BroadcastGroups computes broadcast group metrics for every node with ≥1 child.
 func (c *Cascade) BroadcastGroups() []BroadcastGroup {
 	var groups []BroadcastGroup
 	c.collectBroadcasts(0, &groups)
@@ -196,7 +196,6 @@ func (c *Cascade) broadcastGroup(i int) BroadcastGroup {
 	children := c.ChildrenOf(i)
 	k := len(children)
 
-	// Children are already time-sorted because we process reposts in time_us order.
 	bg := BroadcastGroup{
 		PostURI:          c.PostURI,
 		ParentDID:        c.Nodes[i].ActorDID,
@@ -206,7 +205,6 @@ func (c *Cascade) broadcastGroup(i int) BroadcastGroup {
 	}
 
 	if k >= 2 {
-		// Build sorted time array for gap computation
 		times := make([]float64, k)
 		for j, child := range children {
 			times[j] = float64(c.Nodes[child].TimeUS)
@@ -218,7 +216,6 @@ func (c *Cascade) broadcastGroup(i int) BroadcastGroup {
 		}
 		bg.MeanGapUS = sum / float64(k-1)
 
-		// Median gap
 		gaps := make([]float64, k-1)
 		for j := 1; j < k; j++ {
 			gaps[j-1] = times[j] - times[j-1]
@@ -229,7 +226,6 @@ func (c *Cascade) broadcastGroup(i int) BroadcastGroup {
 		} else {
 			bg.MedianGapUS = gaps[m/2]
 		}
-
 		bg.GapTrend = computeGapTrend(times)
 	}
 
@@ -238,17 +234,15 @@ func (c *Cascade) broadcastGroup(i int) BroadcastGroup {
 
 // ─── Root-to-leaf path analysis ──────────────────────────────────────────
 
-// RootToLeafPath holds metrics for one path from root to a leaf node.
 type RootToLeafPath struct {
-	PostURI        string
-	LeafDID        string
-	PathDepth      int
+	PostURI         string
+	LeafDID         string
+	PathDepth       int
 	PathTotalTimeUS float64
-	TraversalSpeed float64
-	GapTrend       float64
+	TraversalSpeed  float64
+	GapTrend        float64
 }
 
-// RootToLeafPaths computes all root-to-leaf path metrics.
 func (c *Cascade) RootToLeafPaths() []RootToLeafPath {
 	var paths []RootToLeafPath
 	c.collectPaths(0, nil, &paths)
@@ -278,4 +272,168 @@ func (c *Cascade) collectPaths(i int, times []float64, paths *[]RootToLeafPath) 
 	for _, child := range children {
 		c.collectPaths(child, append(times, float64(c.Nodes[child].TimeUS)), paths)
 	}
+}
+
+// ─── Post lifetime percentiles ───────────────────────────────────────────
+
+// PostLifetime holds T_50, T_95, T_99 and time_to_peak for one cascade.
+type PostLifetime struct {
+	PostURI          string
+	AuthorDID        string
+	CreationTimeUS   int64
+	LastRepostTimeUS int64
+	TotalReposts     int
+	T_50_US          float64
+	T_95_US          float64
+	T_99_US          float64
+	TimeToPeakUS     float64
+}
+
+// Lifetime computes percentile timings relative to post creation.
+// Returns nil for single-node cascades.
+func (c *Cascade) Lifetime() *PostLifetime {
+	n := c.NumNodes()
+	if n <= 1 {
+		return nil
+	}
+
+	N := n - 1 // repost count
+	creationTime := c.Nodes[0].TimeUS
+	lastTime := c.Nodes[n-1].TimeUS
+
+	return &PostLifetime{
+		PostURI:          c.PostURI,
+		AuthorDID:        c.Nodes[0].ActorDID,
+		CreationTimeUS:   creationTime,
+		LastRepostTimeUS: lastTime,
+		TotalReposts:     N,
+		T_50_US:          c.repostTimeAtPct(0.50) - float64(creationTime),
+		T_95_US:          c.repostTimeAtPct(0.95) - float64(creationTime),
+		T_99_US:          c.repostTimeAtPct(0.99) - float64(creationTime),
+		TimeToPeakUS:     c.timeToPeak() - float64(creationTime),
+	}
+}
+
+// repostTimeAtPct returns the timestamp of the repost at percentile p of all
+// reposts. p=0.50 → time of the median repost.
+func (c *Cascade) repostTimeAtPct(p float64) float64 {
+	N := c.NumNodes() - 1
+	if N <= 0 {
+		return float64(c.Nodes[0].TimeUS)
+	}
+	idx := int(math.Ceil(p*float64(N))) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= N {
+		idx = N - 1
+	}
+	return float64(c.Nodes[idx+1].TimeUS) // +1 because index 0 is root
+}
+
+// timeToPeak finds the densest 1% bin of repost activity and returns the
+// timestamp of the first repost in that bin.
+func (c *Cascade) timeToPeak() float64 {
+	n := c.NumNodes()
+	if n <= 2 {
+		return float64(c.Nodes[0].TimeUS)
+	}
+
+	creationTime := float64(c.Nodes[0].TimeUS)
+	lastTime := float64(c.Nodes[n-1].TimeUS)
+	span := lastTime - creationTime
+	if span <= 0 {
+		return creationTime
+	}
+
+	const numBins = 100
+	var bins [100]int
+	var binFirstTime [100]float64
+	for i := range binFirstTime {
+		binFirstTime[i] = -1
+	}
+
+	for i := 1; i < n; i++ {
+		t := float64(c.Nodes[i].TimeUS)
+		bin := int((t - creationTime) / span * float64(numBins))
+		if bin >= numBins {
+			bin = numBins - 1
+		}
+		if bin < 0 {
+			bin = 0
+		}
+		bins[bin]++
+		if binFirstTime[bin] < 0 {
+			binFirstTime[bin] = t
+		}
+	}
+
+	maxBin := 0
+	for b := 1; b < numBins; b++ {
+		if bins[b] > bins[maxBin] {
+			maxBin = b
+		}
+	}
+
+	if binFirstTime[maxBin] >= 0 {
+		return binFirstTime[maxBin]
+	}
+	return creationTime
+}
+
+// ─── Per-repost gaps ─────────────────────────────────────────────────────
+
+// RepostGap holds per-repost inter-event timing.
+type RepostGap struct {
+	PostURI       string
+	ReposterDID   string
+	ParentDID     string
+	RepostTimeUS  int64
+	GlobalGapUS   float64 // time since previous repost in this cascade; -1 for first
+	TopologyGapUS float64 // time since previous repost from same parent; -1 for first
+}
+
+// RawGaps returns one row per repost with global and topology gaps.
+func (c *Cascade) RawGaps() []RepostGap {
+	n := c.NumNodes()
+	if n <= 1 {
+		return nil
+	}
+
+	gaps := make([]RepostGap, n-1)
+	lastTimePerParent := make(map[int]float64) // parent node index → last child time
+
+	for i := 1; i < n; i++ {
+		parentIdx := c.parentIdx[i]
+		parentDID := ""
+		if parentIdx >= 0 && parentIdx < n {
+			parentDID = c.Nodes[parentIdx].ActorDID
+		}
+
+		thisTime := float64(c.Nodes[i].TimeUS)
+
+		g := RepostGap{
+			PostURI:      c.PostURI,
+			ReposterDID:  c.Nodes[i].ActorDID,
+			ParentDID:    parentDID,
+			RepostTimeUS: c.Nodes[i].TimeUS,
+			GlobalGapUS:  -1,
+			TopologyGapUS: -1,
+		}
+
+		// Global gap: time since the immediately previous repost in the cascade
+		if i > 1 {
+			g.GlobalGapUS = thisTime - float64(c.Nodes[i-1].TimeUS)
+		}
+
+		// Topology gap: time since the previous repost from the same parent
+		if prevTime, ok := lastTimePerParent[parentIdx]; ok {
+			g.TopologyGapUS = thisTime - prevTime
+		}
+		lastTimePerParent[parentIdx] = thisTime
+
+		gaps[i-1] = g
+	}
+
+	return gaps
 }

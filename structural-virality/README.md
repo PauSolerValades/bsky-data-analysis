@@ -1,122 +1,116 @@
-# Structural Virality
+# Structural Virality & Cascade Analysis
 
-Compute structural virality ν(T) (Goel et al. 2016) and cascade tree metrics for
-Bluesky post cascades. Produces three parquet datasets in a single pass over the data.
+Compute structural virality ν(T) (Goel et al. 2016), cascade tree metrics, post
+lifetime percentiles, and per-repost gaps — all in a single pass over the repost
+data. Produces five parquet datasets.
 
 ## Datasets
 
-The Go binary connects directly to StarRocks and outputs three parquet files:
+### `cascades.parquet` — Cascade-level metrics (1 row per post)
 
-### `cascades.parquet` — Cascade-level metrics
+| Column | Description |
+|---|---|
+| `post_uri` | AT URI of the original post |
+| `author_did` | DID of the post creator (extracted from subject_uri) |
+| `creation_time_us` | 0 (not available — `bsky.records` has no `app.bsky.feed.post` rows) |
+| `cascade_size` | Total nodes (root + all reposts) |
+| `cascade_depth` | Maximum tree depth (root = 0) |
+| `max_out_degree` | Largest fan-out of any node |
+| `structural_virality` | Wiener-index-based ν(T) |
 
-One row per original post.
+### `post_lifetime.parquet` — Percentile timings (1 row per post with ≥1 repost)
 
-| Column | Type | Description |
-|---|---|---|
-| `post_uri` | string | AT URI of the original post |
-| `author_did` | string | DID of the post creator |
-| `creation_time_us` | int64 | Post creation timestamp (microseconds) |
-| `cascade_size` | int32 | Total nodes (root + all reposts) |
-| `cascade_depth` | int32 | Maximum tree depth (root = 0) |
-| `max_out_degree` | int32 | Largest fan-out of any node in the tree |
-| `structural_virality` | float64 | Wiener-index-based structural virality ν(T) |
+All times are **deltas from the first repost** (not from post creation).
 
-### `broadcast_groups.parquet` — Per-parent broadcast analysis
+| Column | Description |
+|---|---|
+| `T_50_us` | Time from first repost to 50% of all reposts |
+| `T_95_us` | Time from first repost to 95% of all reposts |
+| `T_99_us` | Time from first repost to 99% of all reposts |
+| `time_to_peak_us` | Time from first repost to the densest 1% activity bin |
 
-One row per node in the tree that has children. Measures how fast a single
-user's audience picks up the content.
+### `broadcast_groups.parquet` — Per-parent analysis (1 row per node with children)
 
-| Column | Type | Description |
-|---|---|---|
-| `post_uri` | string | Which cascade this group belongs to |
-| `parent_did` | string | DID of the broadcasting user |
-| `broadcast_size` | int32 | Number of children (audience that reposted) |
-| `mean_gap_us` | float64 | Mean time between consecutive child reposts |
-| `median_gap_us` | float64 | Median time between consecutive child reposts |
-| `gap_trend` | float64 | Slope of gap times (positive = decaying reach) |
-| `first_child_time_us` | int64 | Timestamp of the first repost of this parent's children |
-| `last_child_time_us` | int64 | Timestamp of the last repost of this parent's children |
+| Column | Description |
+|---|---|
+| `parent_did` | DID of the broadcasting user |
+| `broadcast_size` | Number of children |
+| `mean_gap_us` / `median_gap_us` | Time between consecutive child reposts |
+| `gap_trend` | Slope of gaps (positive = decaying reach) |
 
-### `root_to_leaf.parquet` — Root-to-leaf path analysis
+### `root_to_leaf_paths.parquet` — Path analysis (1 row per leaf)
 
-One row per leaf node in the cascade tree. Captures end-to-end traversal of a
-post through the social graph.
+| Column | Description |
+|---|---|
+| `leaf_did` | DID at the end of the path |
+| `path_depth` | Number of hops from root |
+| `path_total_time_us` | t(leaf) − t(first repost) |
+| `traversal_speed` | path_total_time / path_depth |
 
-| Column | Type | Description |
-|---|---|---|
-| `post_uri` | string | Which cascade this path belongs to |
-| `leaf_did` | string | DID of the user at the leaf (who never reposted it) |
-| `path_depth` | int32 | Number of hops from root to leaf |
-| `path_total_time_us` | float64 | t(leaf) − t(root) in microseconds |
-| `traversal_speed` | float64 | path_total_time_us / path_depth |
-| `gap_trend` | float64 | Slope of inter-hop gaps (positive = deceleration toward leaf) |
+### `repost_gaps.parquet` — Per-repost gaps (1 row per repost)
+
+| Column | Description |
+|---|---|
+| `reposter_did` | Who reposted |
+| `parent_did` | Who they saw it from (via_uri resolution) |
+| `global_gap_us` | Time since previous repost in this cascade (−1 for first) |
+| `topology_gap_us` | Time since previous repost from same parent (−1 for first) |
 
 ## Algorithm
 
-### Structural virality
-
-Uses the Wiener index — average distance between all pairs of nodes in the
-**repost cascade tree** — computed in O(N) via a single post-order traversal
-that accumulates subtree-crossing counts per edge:
+Cascade trees are built in **CSR (Compressed Sparse Row)** format from the `via_uri`
+field — the true propagation path. Structural virality uses the subtree-crossing
+Wiener index formula, computed in a single O(N) post-order traversal:
 
 ```
 ν(T) = 2 · Σ (sub · (n − sub)) / (n · (n − 1))
 ```
 
-where the sum is over all parent→child edges and `sub` is the size of the
-child's subtree.
+- ν = 1.0 → pure broadcast (star)
+- ν > 1.0 → viral spread
+- ν = 0   → single node
 
-- ν = 1.0 → pure broadcast (star, one-to-many)
-- ν > 1.0 → viral spread (deeper chains, person-to-person)
-- ν = 0   → no cascade (single node)
-
-### Cascade reconstruction
-
-We use the `via_uri` field in repost records, which tells us exactly which
-repost a user saw. No follow graph needed — this is the **true** propagation path.
-
-The tree is stored in **CSR (Compressed Sparse Row)** format for cache-friendly traversal.
-
-### Broadcast groups
-
-For each parent node, we collect its children (already time-sorted by
-construction) and compute:
-- **Broadcast speed**: mean/median gap between consecutive child reposts
-- **Broadcast decay**: linear regression slope of gaps over position
-  (positive = slowing down, negative = accelerating)
-
-### Root-to-leaf paths
-
-A recursive traversal from root collects all paths to leaves (nodes with zero
-children). For each path we compute total traversal time, speed, and
-inter-hop gap trend.
+Lifetime percentiles (T_50, etc.) are computed from the already time-sorted
+repost array. Broadcast groups and root-to-leaf paths are collected during the
+same tree traversal.
 
 ## Usage
 
-### Rebuild Go binary
+### 1. Dump reposts from StarRocks
+
+```bash
+mysql -h 10.18.74.14 -P 9030 -u pau -p -N -B < structural-virality/01_dump_reposts.sql > reposts.tsv
+```
+
+### 2. Compute everything
 
 ```bash
 cd go && go build -o ../02_compute_virality .
+./structural-virality/02_compute_virality reposts.tsv
 ```
 
-### Run
+Output: `results/{cascades,broadcast_groups,root_to_leaf_paths,post_lifetime,repost_gaps}.parquet`
 
-```bash
-./structural-virality/02_compute_virality \
-  -host 10.18.74.14 \
-  -port 9030 \
-  -user pau \
-  -password '...' \
-  -database bsky \
-  -output results/
+### 3. Query examples (DuckDB)
+
+```sql
+-- Top 10 most viral posts
+SELECT post_uri, cascade_size, cascade_depth, structural_virality
+FROM read_parquet('results/cascades.parquet')
+WHERE cascade_size >= 2
+ORDER BY structural_virality DESC LIMIT 10;
+
+-- Median T_50 by cascade size bucket
+SELECT
+    CASE
+        WHEN cascade_size BETWEEN 2 AND 5 THEN '2-5'
+        WHEN cascade_size BETWEEN 6 AND 20 THEN '6-20'
+        WHEN cascade_size BETWEEN 21 AND 100 THEN '21-100'
+        ELSE '100+'
+    END AS bucket,
+    MEDIAN(T_50_us) / 1e6 AS median_T50_seconds
+FROM read_parquet('results/post_lifetime.parquet')
+JOIN read_parquet('results/cascades.parquet') USING (post_uri)
+WHERE total_reposts >= 2
+GROUP BY bucket ORDER BY MIN(cascade_size);
 ```
-
-All flags are optional and default to the values above.
-
-### Generate plots (Python)
-
-```bash
-uv run structural-virality/03_plot_virality.py
-```
-
-Reads `results/cascades.parquet` and generates 6 plots in `results/`.
