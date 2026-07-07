@@ -1,285 +1,320 @@
 package main
 
 import (
-	"encoding/csv"
+	"database/sql"
+	"flag"
 	"fmt"
-	"math"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/parquet-go/parquet-go"
 )
 
-// Repost is a single repost event from the dump.
-type Repost struct {
-	SubjectURI string // original post URI
-	RepostURI  string // URI of this repost record (key for via lookups)
-	ViaURI     string // parent repost URI, empty if direct
-	ActorDID   string // who reposted
-	TimeUS     int64  // event timestamp (microseconds)
-}
-
-// Node in a cascade tree.
-type Node struct {
-	URI      string
-	Actor    string
-	Children []*Node
-}
-
-// extractDID pulls the DID from an AT URI like at://did:plc:xxx/app.bsky.feed.post/rkey
-func extractDID(uri string) string {
-	uri = strings.TrimPrefix(uri, "at://")
-	idx := strings.IndexByte(uri, '/')
-	if idx < 0 {
-		return uri
-	}
-	return uri[:idx]
-}
-
-// subtreeMoments computes size, sum of sizes, and sum of squared sizes
-// for the subtree rooted at node, in a single post-order pass.
-func subtreeMoments(node *Node) (size, sumSizes, sumSizesSqr int64) {
-	if len(node.Children) == 0 {
-		return 1, 1, 1
-	}
-	size = 1
-	for _, child := range node.Children {
-		cs, css, cssq := subtreeMoments(child)
-		size += cs
-		sumSizes += css
-		sumSizesSqr += cssq
-	}
-	sumSizes += size
-	sumSizesSqr += size * size
-	return
-}
-
-// virality computes the structural virality ν(T) from Wiener index / subtree moments.
-// Formula from Goel et al. (2016):
+// ─── StarRocks query ─────────────────────────────────────────────────────
 //
-//	ν(T) = (2n / (n-1)) · (ΣS_i / n  −  ΣS_i² / n²)
+// The query fetches original post creations AND reposts in a single sorted
+// stream. Sorting by (subject_uri, time_us, is_repost) guarantees that:
 //
-// where S_i is the size of the subtree rooted at node i,
-// and n is the total number of nodes.
-func virality(n, sumSizes, sumSizesSqr int64) float64 {
-	if n <= 1 {
-		return 0.0
-	}
-	fn := float64(n)
-	return (2.0 * fn / (fn - 1.0)) *
-		(float64(sumSizes)/fn - float64(sumSizesSqr)/(fn*fn))
-}
+//  1. All events for one cascade are contiguous.
+//  2. Within a cascade, events are time-ordered.
+//  3. For equal timestamps, creation (is_repost=0) comes before reposts.
+//
+// Reposts include repost_uri and via_uri for parent resolution.
+// Creations have NULL repost_uri and via_uri.
 
-// maxDepth computes the maximum depth of the tree (root = depth 0).
-func maxDepth(node *Node) int {
-	if len(node.Children) == 0 {
-		return 0
-	}
-	md := 0
-	for _, child := range node.Children {
-		d := maxDepth(child)
-		if d > md {
-			md = d
-		}
-	}
-	return md + 1
-}
+const cascadeQuery = `
+SELECT
+    CONCAT('at://', did, '/app.bsky.feed.post/', rkey) AS subject_uri,
+    NULL AS repost_uri,
+    did   AS actor_did,
+    NULL AS via_uri,
+    time_us,
+    0    AS is_repost
+FROM bsky.records
+WHERE collection = 'app.bsky.feed.post'
+  AND operation  = 'create'
+  AND time_us    > 0
+  AND did        IS NOT NULL
 
-// buildCascade builds the cascade tree for a single post and computes ν.
-func buildCascade(postURI string, reposts []Repost) (size int64, vir float64, depth int) {
-	// Root = post creator
-	creator := extractDID(postURI)
-	root := &Node{URI: postURI, Actor: creator}
+UNION ALL
 
-	// Map repost_uri -> node for via lookups
-	nodeByURI := make(map[string]*Node, len(reposts))
+SELECT
+    subject_uri,
+    CONCAT('at://', did, '/app.bsky.feed.repost/', rkey) AS repost_uri,
+    did                                                   AS actor_did,
+    via_uri,
+    time_us,
+    1                                                     AS is_repost
+FROM bsky.records
+WHERE collection = 'app.bsky.feed.repost'
+  AND operation  = 'create'
+  AND time_us    > 0
+  AND subject_uri IS NOT NULL
 
-	for _, r := range reposts {
-		node := &Node{URI: r.RepostURI, Actor: r.ActorDID}
+ORDER BY subject_uri, time_us, is_repost
+`
 
-		// Find parent
-		parent := root
-		if r.ViaURI != "" {
-			if p, ok := nodeByURI[r.ViaURI]; ok {
-				parent = p
-			}
-			// else: via points to unknown repost → attach to root
-		}
-		parent.Children = append(parent.Children, node)
-		nodeByURI[r.RepostURI] = node
-	}
+// ─── Flags ───────────────────────────────────────────────────────────────
 
-	n, ss, ssq := subtreeMoments(root)
-	return n, virality(n, ss, ssq), maxDepth(root)
-}
+var (
+	host     = flag.String("host", "10.18.74.14", "StarRocks host")
+	port     = flag.Int("port", 9030, "StarRocks port")
+	user     = flag.String("user", "pau", "StarRocks user")
+	password = flag.String("password", "", "StarRocks password")
+	database = flag.String("database", "bsky", "StarRocks database")
+	outDir   = flag.String("output", "results", "Output directory for parquet files")
+)
+
+// ─── Main ────────────────────────────────────────────────────────────────
 
 func main() {
-	if len(os.Args) < 3 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <reposts.tsv> <output.csv>\n", os.Args[0])
+	flag.Parse()
+
+	if err := os.MkdirAll(*outDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "cannot create output dir: %v\n", err)
 		os.Exit(1)
 	}
-	inputPath := os.Args[1]
-	outputPath := os.Args[2]
 
-	f, err := os.Open(inputPath)
+	// ── Connect to StarRocks ──────────────────────────────────────────
+
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?interpolateParams=true&parseTime=true",
+		*user, *password, *host, *port, *database,
+	)
+
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening input: %v\n", err)
+		fmt.Fprintf(os.Stderr, "cannot open database: %v\n", err)
 		os.Exit(1)
 	}
-	defer f.Close()
+	defer db.Close()
 
-	// Read tab-separated input streamed by subject_uri, time_us
-	reader := csv.NewReader(f)
-	reader.Comma = '\t'
-	reader.LazyQuotes = true
-	reader.FieldsPerRecord = 5
+	// ── Open parquet writers ──────────────────────────────────────────
 
-	out, err := os.Create(outputPath)
+	cw, err := newCascadeWriter(*outDir + "/cascades.parquet")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating output: %v\n", err)
+		fmt.Fprintf(os.Stderr, "cannot open cascades writer: %v\n", err)
 		os.Exit(1)
 	}
-	defer out.Close()
+	defer cw.close()
 
-	writer := csv.NewWriter(out)
-	defer writer.Flush()
-	writer.Write([]string{"post_uri", "cascade_size", "structural_virality", "max_depth"})
+	bw, err := newBroadcastWriter(*outDir + "/broadcast_groups.parquet")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot open broadcast writer: %v\n", err)
+		os.Exit(1)
+	}
+	defer bw.close()
 
-	var currentPost string
-	var currentReposts []Repost
-	lineNo := 0
-	totalPosts := 0
+	pw, err := newPathWriter(*outDir + "/root_to_leaf.parquet")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot open paths writer: %v\n", err)
+		os.Exit(1)
+	}
+	defer pw.close()
 
-	for {
-		record, err := reader.Read()
-		if err != nil {
-			if err.Error() == "EOF" {
-				break
-			}
-			// Skip malformed lines
-			lineNo++
+	// ── Stream query results ──────────────────────────────────────────
+
+	fmt.Fprintf(os.Stderr, "Executing cascade query...\n")
+	rows, err := db.Query(cascadeQuery)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "query failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer rows.Close()
+
+	var (
+		currentPost   string
+		currentEvents []RawEvent
+		totalCascades int64
+		first         = true
+	)
+
+	for rows.Next() {
+		var (
+			subjectURI string
+			repostURI  sql.NullString
+			actorDID   string
+			viaURI     sql.NullString
+			timeUS     int64
+			isRepost   int
+		)
+
+		if err := rows.Scan(&subjectURI, &repostURI, &actorDID, &viaURI, &timeUS, &isRepost); err != nil {
+			fmt.Fprintf(os.Stderr, "scan error: %v\n", err)
 			continue
 		}
-		lineNo++
 
-		// Columns: subject_uri, repost_uri, via_uri, actor_did, time_us
-		if len(record) < 5 {
-			continue
-		}
-		subjectURI := record[0]
-		repostURI := record[1]
-		viaURI := record[2]
-		actorDID := record[3]
-		timeStr := record[4]
-
-		// Handle MySQL \N for NULL
-		if viaURI == `\N` || viaURI == "NULL" {
-			viaURI = ""
-		}
-		if timeStr == `\N` || timeStr == "" {
-			continue
+		event := RawEvent{
+			RepostURI: nullStr(repostURI),
+			ActorDID:  actorDID,
+			ViaURI:    nullStr(viaURI),
+			TimeUS:    timeUS,
 		}
 
-		timeUS, err := strconv.ParseInt(timeStr, 10, 64)
-		if err != nil {
-			continue
-		}
-
-		r := Repost{
-			SubjectURI: subjectURI,
-			RepostURI:  repostURI,
-			ViaURI:     viaURI,
-			ActorDID:   actorDID,
-			TimeUS:     timeUS,
-		}
-
-		// Detect post boundary (data is sorted by subject_uri, time_us)
+		// Detect cascade boundary (sorted by subject_uri)
 		if subjectURI != currentPost {
-			// Process previous post
-			if len(currentReposts) > 0 {
-				size, vir, depth := buildCascade(currentPost, currentReposts)
-				writer.Write([]string{
-					currentPost,
-					strconv.FormatInt(size, 10),
-					strconv.FormatFloat(vir, 'f', 6, 64),
-					strconv.Itoa(depth),
-				})
-				totalPosts++
-				if totalPosts%100000 == 0 {
-					fmt.Fprintf(os.Stderr, "  processed %d posts...\n", totalPosts)
+			// Process previous cascade
+			if !first {
+				processCascade(currentPost, currentEvents, cw, bw, pw)
+				totalCascades++
+				if totalCascades%100000 == 0 {
+					fmt.Fprintf(os.Stderr, "  processed %d cascades...\n", totalCascades)
 				}
 			}
+			first = false
 			currentPost = subjectURI
-			currentReposts = nil
+			currentEvents = nil
 		}
-		currentReposts = append(currentReposts, r)
+		currentEvents = append(currentEvents, event)
 	}
 
-	// Process last post
-	if len(currentReposts) > 0 {
-		size, vir, depth := buildCascade(currentPost, currentReposts)
-		writer.Write([]string{
-			currentPost,
-			strconv.FormatInt(size, 10),
-			strconv.FormatFloat(vir, 'f', 6, 64),
-			strconv.Itoa(depth),
-		})
-		totalPosts++
+	if err := rows.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "rows iteration error: %v\n", err)
+		os.Exit(1)
 	}
 
-	// Summary stats
-	fmt.Fprintf(os.Stderr, "Lines read: %d\n", lineNo)
-	fmt.Fprintf(os.Stderr, "Posts with ≥1 repost: %d\n", totalPosts)
-	fmt.Fprintf(os.Stderr, "Output written to: %s\n", outputPath)
-
-	// Compute quick summary of ν distribution
-	if totalPosts > 0 {
-		fmt.Println("\n--- Quick summary (re-run with plots for full analysis) ---")
-		// Re-read output to compute stats
-		out.Close()
-		summaryFile, _ := os.Open(outputPath)
-		defer summaryFile.Close()
-		summaryReader := csv.NewReader(summaryFile)
-		summaryReader.Read() // skip header
-		var vVals []float64
-		maxV, minV := -1.0, math.MaxFloat64
-		maxSize := int64(0)
-		for {
-			rec, err := summaryReader.Read()
-			if err != nil {
-				break
-			}
-			if len(rec) < 3 {
-				continue
-			}
-			v, _ := strconv.ParseFloat(rec[2], 64)
-			sz, _ := strconv.ParseInt(rec[1], 10, 64)
-			vVals = append(vVals, v)
-			if v > maxV {
-				maxV = v
-			}
-			if v < minV {
-				minV = v
-			}
-			if sz > maxSize {
-				maxSize = sz
-			}
-		}
-
-		sort.Float64s(vVals)
-		n := len(vVals)
-		mean := 0.0
-		for _, v := range vVals {
-			mean += v
-		}
-		mean /= float64(n)
-
-		fmt.Printf("Cascades: %d\n", n)
-		fmt.Printf("Max cascade size: %d\n", maxSize)
-		fmt.Printf("ν range: [%.4f, %.4f]\n", minV, maxV)
-		fmt.Printf("ν mean:  %.4f\n", mean)
-		fmt.Printf("ν p50:   %.4f\n", vVals[n/2])
-		fmt.Printf("ν p90:   %.4f\n", vVals[n*90/100])
-		fmt.Printf("ν p99:   %.4f\n", vVals[n*99/100])
+	// Process final cascade
+	if len(currentEvents) > 0 {
+		processCascade(currentPost, currentEvents, cw, bw, pw)
+		totalCascades++
 	}
+
+	fmt.Fprintf(os.Stderr, "\nDone. %d cascades processed.\n", totalCascades)
+	fmt.Fprintf(os.Stderr, "Output written to: %s/{cascades,broadcast_groups,root_to_leaf}.parquet\n", *outDir)
+
+	// ── Quick summary (re-read cascades.parquet) ──────────────────────
+
+	printSummary(*outDir + "/cascades.parquet")
+}
+
+// ─── Cascade processing ──────────────────────────────────────────────────
+
+// processCascade builds the CSR tree for one cascade, computes all three
+// datasets, and writes the rows to their respective parquet writers.
+func processCascade(
+	postURI string,
+	events []RawEvent,
+	cw *cascadeWriter,
+	bw *broadcastWriter,
+	pw *pathWriter,
+) {
+	c := BuildCascade(postURI, events)
+	if c == nil {
+		return
+	}
+
+	// Cascade-level row
+	cw.write([]CascadeRow{{
+		PostURI:            postURI,
+		AuthorDID:          c.Root().ActorDID,
+		CreationTimeUS:     c.Root().TimeUS,
+		CascadeSize:        int32(c.Size()),
+		CascadeDepth:       int32(c.Depth()),
+		MaxOutDegree:       int32(c.MaxOutDegree()),
+		StructuralVirality: c.StructuralVirality(),
+	}})
+
+	// Broadcast groups
+	for _, g := range c.BroadcastGroups() {
+		bw.write([]BroadcastRow{{
+			PostURI:          g.PostURI,
+			ParentDID:        g.ParentDID,
+			BroadcastSize:    int32(g.BroadcastSize),
+			MeanGapUS:        g.MeanGapUS,
+			MedianGapUS:      g.MedianGapUS,
+			GapTrend:         g.GapTrend,
+			FirstChildTimeUS: g.FirstChildTimeUS,
+			LastChildTimeUS:  g.LastChildTimeUS,
+		}})
+	}
+
+	// Root-to-leaf paths
+	for _, p := range c.RootToLeafPaths() {
+		pw.write([]PathRow{{
+			PostURI:         p.PostURI,
+			LeafDID:         p.LeafDID,
+			PathDepth:       int32(p.PathDepth),
+			PathTotalTimeUS: p.PathTotalTimeUS,
+			TraversalSpeed:  p.TraversalSpeed,
+			GapTrend:        p.GapTrend,
+		}})
+	}
+}
+
+// ─── Quick summary ───────────────────────────────────────────────────────
+
+func printSummary(path string) {
+	rows, err := parquet.ReadFile[CascadeRow](path)
+	if err != nil {
+		return
+	}
+
+	n := len(rows)
+	if n == 0 {
+		return
+	}
+
+	var (
+		vVals    []float64
+		maxV     = -1.0
+		minV     = 1e308
+		maxSize  int32
+		maxDepth int32
+		sum      float64
+	)
+
+	for _, r := range rows {
+		v := r.StructuralVirality
+		vVals = append(vVals, v)
+		sum += v
+		if v > maxV {
+			maxV = v
+		}
+		if v < minV {
+			minV = v
+		}
+		if r.CascadeSize > maxSize {
+			maxSize = r.CascadeSize
+		}
+		if r.CascadeDepth > maxDepth {
+			maxDepth = r.CascadeDepth
+		}
+	}
+
+	sort.Float64s(vVals)
+	mean := sum / float64(n)
+
+	broadcast := 0
+	for _, v := range vVals {
+		if v == 1.0 {
+			broadcast++
+		}
+	}
+
+	fmt.Println()
+	fmt.Println(strings.Repeat("─", 55))
+	fmt.Println("  Structural Virality Summary")
+	fmt.Println(strings.Repeat("─", 55))
+	fmt.Printf("  Cascades:              %d\n", n)
+	fmt.Printf("  Max cascade size:      %d\n", maxSize)
+	fmt.Printf("  Max cascade depth:     %d\n", maxDepth)
+	fmt.Printf("  ν range:               [%.4f, %.4f]\n", minV, maxV)
+	fmt.Printf("  ν mean:                %.4f\n", mean)
+	fmt.Printf("  ν p50:                 %.4f\n", vVals[n/2])
+	fmt.Printf("  ν p90:                 %.4f\n", vVals[n*90/100])
+	if n >= 100 {
+		fmt.Printf("  ν p99:                 %.4f\n", vVals[n*99/100])
+	}
+	fmt.Printf("  ν = 1.0 (broadcast):   %d (%.1f%%)\n", broadcast, 100*float64(broadcast)/float64(n))
+	fmt.Println(strings.Repeat("─", 55))
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
+func nullStr(ns sql.NullString) string {
+	if ns.Valid {
+		return ns.String
+	}
+	return ""
 }
