@@ -18,6 +18,7 @@ from scipy.stats import gaussian_kde
 # Source enum
 # ---------------------------------------------------------------------------
 
+
 class Source(Enum):
     CORE = "core"
     ALL = "all"
@@ -80,6 +81,7 @@ plt.style.use("ggplot")
 # DB helpers
 # ---------------------------------------------------------------------------
 
+
 def get_connection() -> pymysql.Connection:
     return pymysql.connect(**DB_CONFIG)
 
@@ -105,8 +107,9 @@ def fetch_per_user_stats(conn: pymysql.Connection, table: str) -> dict[str, np.n
         rows = cur.fetchall()
 
     print(f"    → {len(rows):,} rows in {time_mod.time() - t0:.0f}s", file=sys.stderr)
-
+    # pi: imports middle of the code is terrorism
     from collections import defaultdict
+
     user_data: dict[str, list] = defaultdict(list)
     for did, start, end, dur in rows:
         user_data[did].append((int(start), int(end), float(dur)))
@@ -144,6 +147,7 @@ def fetch_per_user_stats(conn: pymysql.Connection, table: str) -> dict[str, np.n
 # Plot helpers — each saves ONE file
 # ---------------------------------------------------------------------------
 
+
 def _filename(section: str, source: Source, kind: str) -> str:
     tag = kind.lower().replace(" ", "_").replace("(", "").replace(")", "")
     return f"{section}_{source.value}_{tag}.png"
@@ -156,8 +160,14 @@ def savefig(fig, name: str, dpi: int = 150):
     print(f"  → {path}", file=sys.stderr)
 
 
-def save_hist(data: np.ndarray, source: Source, section: str, suffix: str,
-              xlabel: str, clip_pct: int = 99):
+def save_hist(
+    data: np.ndarray,
+    source: Source,
+    section: str,
+    suffix: str,
+    xlabel: str,
+    clip_pct: int = 99,
+):
     """Regular histogram, one file."""
     data = np.asarray(data, dtype=np.float64)
     data = data[~np.isnan(data)]
@@ -167,8 +177,12 @@ def save_hist(data: np.ndarray, source: Source, section: str, suffix: str,
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.hist(data, bins=N_BINS, color=source.color, alpha=0.8, edgecolor="none")
     ax.axvline(np.median(data), color="black", linestyle="--", linewidth=1.5)
-    ax.text(np.median(data) * 1.05, ax.get_ylim()[1] * 0.9,
-            f"median={np.median(data):.1f}", fontsize=10)
+    ax.text(
+        np.median(data) * 1.05,
+        ax.get_ylim()[1] * 0.9,
+        f"median={np.median(data):.1f}",
+        fontsize=10,
+    )
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Count")
     ax.set_title(f"{source.label}\n{suffix} (P{clip_pct} clipped)")
@@ -177,8 +191,14 @@ def save_hist(data: np.ndarray, source: Source, section: str, suffix: str,
     savefig(fig, _filename(section, source, suffix.lower().replace(" ", "_")))
 
 
-def save_loglog(data: np.ndarray, source: Source, section: str, suffix: str,
-                xlabel: str, n_bins: int = 60):
+def save_loglog(
+    data: np.ndarray,
+    source: Source,
+    section: str,
+    suffix: str,
+    xlabel: str,
+    n_bins: int = 60,
+):
     """Log-log histogram, one file."""
     data = np.asarray(data, dtype=np.float64)
     data = data[~np.isnan(data) & (data > 0)]
@@ -188,13 +208,22 @@ def save_loglog(data: np.ndarray, source: Source, section: str, suffix: str,
     lo = max(np.log10(data.min()), -1)
     hi = np.log10(data.max()) + 0.1
     bins = np.logspace(lo, hi, n_bins)
+    # ponytail: round bins for integer data so edges align with values
+    if np.all(data == np.floor(data)):
+        bins = np.unique(np.round(bins).astype(int))
     hist, edges = np.histogram(data, bins=bins)
     centers = (edges[:-1] + edges[1:]) / 2
     nonzero = hist > 0
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.loglog(centers[nonzero], hist[nonzero], "-", color=source.color,
-              linewidth=1.5, alpha=0.8)
+    ax.loglog(
+        centers[nonzero],
+        hist[nonzero],
+        "-",
+        color=source.color,
+        linewidth=1.5,
+        alpha=0.8,
+    )
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Count")
     ax.set_title(f"{source.label}\n{suffix} (log-log)")
@@ -203,8 +232,14 @@ def save_loglog(data: np.ndarray, source: Source, section: str, suffix: str,
     savefig(fig, _filename(section, source, suffix.lower().replace(" ", "_")))
 
 
-def save_pdf(data: np.ndarray, source: Source, section: str, suffix: str,
-             xlabel: str, clip_pct: int = 99):
+def save_pdf(
+    data: np.ndarray,
+    source: Source,
+    section: str,
+    suffix: str,
+    xlabel: str,
+    clip_pct: int = 99,
+):
     """PDF (histogram normalized + KDE), one file."""
     data = np.asarray(data, dtype=np.float64)
     data = data[~np.isnan(data) & (data > 0)]
@@ -218,8 +253,15 @@ def save_pdf(data: np.ndarray, source: Source, section: str, suffix: str,
         clipped = data
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.hist(clipped, bins=N_BINS, density=True, color=source.color,
-            alpha=0.4, edgecolor="none", label="Histogram")
+    ax.hist(
+        clipped,
+        bins=N_BINS,
+        density=True,
+        color=source.color,
+        alpha=0.4,
+        edgecolor="none",
+        label="Histogram",
+    )
     kde = gaussian_kde(clipped)
     xs = np.linspace(clipped.min(), clipped.max(), 200)
     ax.plot(xs, kde(xs), "-", color=source.color, linewidth=2, label="KDE")
@@ -232,8 +274,7 @@ def save_pdf(data: np.ndarray, source: Source, section: str, suffix: str,
     savefig(fig, _filename(section, source, suffix.lower().replace(" ", "_")))
 
 
-def save_ccdf(data: np.ndarray, source: Source, section: str, suffix: str,
-              xlabel: str):
+def save_ccdf(data: np.ndarray, source: Source, section: str, suffix: str, xlabel: str):
     """Complementary CDF, one file."""
     data = np.asarray(data, dtype=np.float64)
     data = data[~np.isnan(data) & (data > 0)]
@@ -253,8 +294,7 @@ def save_ccdf(data: np.ndarray, source: Source, section: str, suffix: str,
     savefig(fig, _filename(section, source, suffix.lower().replace(" ", "_")))
 
 
-def print_percentiles(data: np.ndarray, label: str,
-                      ps: list[int] | None = None):
+def print_percentiles(data: np.ndarray, label: str, ps: list[int] | None = None):
     if ps is None:
         ps = [1, 5, 10, 25, 50, 75, 90, 95, 99]
     d = np.asarray(data, dtype=np.float64)

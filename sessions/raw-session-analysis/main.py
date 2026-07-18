@@ -20,27 +20,54 @@ import sessions_per_user as s1
 import session_duration as s2
 import session_gaps as s3
 
+_SECTIONS = {
+    "sessions_per_user": 1,
+    "session_duration": 2,
+    "session_gaps": 3,
+    # numeric aliases
+    "1": 1, "2": 2, "3": 3,
+}
+
+
+def _parse_sections(raw: str) -> set[int]:
+    """Parse comma-separated section names (or numbers) into a set of ints."""
+    result: set[int] = set()
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        n = _SECTIONS.get(token)
+        if n is None:
+            print(f"Unknown section: '{token}'. Options: {list(_SECTIONS)}", file=sys.stderr)
+            sys.exit(1)
+        result.add(n)
+    return result
+
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Raw session analysis (core vs all)"
+    parser = argparse.ArgumentParser(description="Raw session analysis (core vs all)")
+    parser.add_argument(
+        "--skip",
+        type=str,
+        default="",
+        help="Comma-separated sections to skip (e.g., 'session_gaps' or '3')",
     )
     parser.add_argument(
-        "--skip", type=str, default="",
-        help="Comma-separated section numbers to skip (e.g., '3')",
+        "--only",
+        type=str,
+        default="",
+        help="Comma-separated sections to run exclusively (e.g., 'sessions_per_user,session_duration' or '1,2')",
     )
     parser.add_argument(
-        "--only", type=str, default="",
-        help="Comma-separated section numbers to run exclusively (e.g., '1,2')",
-    )
-    parser.add_argument(
-        "--source", type=str, default="",
+        "--source",
+        type=str,
+        default="",
         help="Comma-separated sources to run (e.g., 'core' or 'core,all'). Default: both.",
     )
     args = parser.parse_args()
 
-    skip = {int(x) for x in args.skip.split(",") if x.strip()}
-    only = {int(x) for x in args.only.split(",") if x.strip()}
+    skip = _parse_sections(args.skip)
+    only = _parse_sections(args.only)
 
     if args.source:
         sources = [Source(s) for s in args.source.split(",")]
