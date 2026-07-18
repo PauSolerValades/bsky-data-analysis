@@ -13,7 +13,9 @@ Usage:
 import argparse
 import sys
 import time as time_mod
+from pathlib import Path
 
+import _common
 from _common import Source
 
 import sessions_per_user as s1
@@ -64,10 +66,18 @@ def main():
         default="",
         help="Comma-separated sources to run (e.g., 'core' or 'core,all'). Default: both.",
     )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="raw-session-analysis/plots",
+        help="Output directory for plots (default: %(default)s).",
+    )
     args = parser.parse_args()
 
     skip = _parse_sections(args.skip)
     only = _parse_sections(args.only)
+
+    _common.set_output_dir(Path(args.output_dir).resolve())
 
     if args.source:
         sources = [Source(s) for s in args.source.split(",")]

@@ -59,8 +59,15 @@ N_BINS = 80
 # ---------------------------------------------------------------------------
 
 REPO = Path(__file__).resolve().parent.parent.parent
-OUT = Path(__file__).resolve().parent / "results"
+OUT = Path(__file__).resolve().parent / "plots"
 OUT.mkdir(parents=True, exist_ok=True)
+
+
+def set_output_dir(path: str | Path) -> None:
+    """Override the output directory for plots."""
+    global OUT
+    OUT = Path(path)
+    OUT.mkdir(parents=True, exist_ok=True)
 
 ENV_PATH = REPO / ".env"
 load_dotenv(ENV_PATH)
