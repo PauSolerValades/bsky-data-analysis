@@ -62,6 +62,8 @@ REPO = Path(__file__).resolve().parent.parent.parent
 OUT = Path(__file__).resolve().parent / "plots"
 OUT.mkdir(parents=True, exist_ok=True)
 
+CLIP_PCT: int | None = None  # set by main.py via --clip-at
+
 
 def set_output_dir(path: str | Path) -> None:
     """Override the output directory for plots."""
@@ -93,19 +95,26 @@ def get_connection() -> pymysql.Connection:
     return pymysql.connect(**DB_CONFIG)
 
 
-def fetch_column(conn: pymysql.Connection, table: str, column: str) -> np.ndarray:
+def fetch_column(conn: pymysql.Connection, table: str, column: str,
+                 where: str | None = None) -> np.ndarray:
+    sql = f"SELECT {column} FROM {table}"
+    if where:
+        sql += f" WHERE {where}"
     with conn.cursor() as cur:
-        cur.execute(f"SELECT {column} FROM {table}")
+        cur.execute(sql)
         return np.array([r[0] for r in cur], dtype=np.float64)
 
 
-def fetch_per_user_stats(conn: pymysql.Connection, table: str) -> dict[str, np.ndarray]:
+def fetch_per_user_stats(conn: pymysql.Connection, table: str,
+                         where: str | None = None) -> dict[str, np.ndarray]:
     """Per-user: session count, median duration, median gap."""
     sql = f"""
         SELECT did, session_start, session_end, duration_s
         FROM {table}
         ORDER BY did, session_start
     """
+    if where:
+        sql = sql.replace("ORDER BY", f"WHERE {where} ORDER BY")
     print(f"  Fetching per-user stats from {table} ...", file=sys.stderr)
     t0 = time_mod.time()
 
@@ -173,13 +182,15 @@ def save_hist(
     section: str,
     suffix: str,
     xlabel: str,
-    clip_pct: int = 99,
 ):
     """Regular histogram, one file."""
     data = np.asarray(data, dtype=np.float64)
     data = data[~np.isnan(data)]
-    if clip_pct:
-        data = data[data <= np.percentile(data, clip_pct)]
+
+    title_extra = ""
+    if CLIP_PCT is not None:
+        data = data[data <= np.percentile(data, CLIP_PCT)]
+        title_extra = f" (P{CLIP_PCT} clipped)"
 
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.hist(data, bins=N_BINS, color=source.color, alpha=0.8, edgecolor="none")
@@ -192,7 +203,7 @@ def save_hist(
     )
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Count")
-    ax.set_title(f"{source.label}\n{suffix} (P{clip_pct} clipped)")
+    ax.set_title(f"{source.label}\n{suffix}{title_extra}")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     savefig(fig, _filename(section, source, suffix.lower().replace(" ", "_")))
@@ -245,7 +256,6 @@ def save_pdf(
     section: str,
     suffix: str,
     xlabel: str,
-    clip_pct: int = 99,
 ):
     """PDF (histogram normalized + KDE), one file."""
     data = np.asarray(data, dtype=np.float64)
@@ -253,15 +263,16 @@ def save_pdf(
     if len(data) < 3:
         return
 
-    if clip_pct:
-        clip_val = np.percentile(data, clip_pct)
-        clipped = data[data <= clip_val]
-    else:
-        clipped = data
+    title_extra = ""
+    if CLIP_PCT is not None:
+        data = data[data <= np.percentile(data, CLIP_PCT)]
+        if len(data) < 3:
+            return
+        title_extra = f" (P{CLIP_PCT} clipped)"
 
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.hist(
-        clipped,
+        data,
         bins=N_BINS,
         density=True,
         color=source.color,
@@ -269,12 +280,12 @@ def save_pdf(
         edgecolor="none",
         label="Histogram",
     )
-    kde = gaussian_kde(clipped)
-    xs = np.linspace(clipped.min(), clipped.max(), 200)
+    kde = gaussian_kde(data)
+    xs = np.linspace(data.min(), data.max(), 200)
     ax.plot(xs, kde(xs), "-", color=source.color, linewidth=2, label="KDE")
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Density")
-    ax.set_title(f"{source.label}\n{suffix} (PDF, P{clip_pct} clipped)")
+    ax.set_title(f"{source.label}\n{suffix} (PDF){title_extra}")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()

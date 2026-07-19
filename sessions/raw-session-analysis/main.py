@@ -21,13 +21,17 @@ from _common import Source
 import sessions_per_user as s1
 import session_duration as s2
 import session_gaps as s3
+import session_composition as s4
+import circadian as s5
 
 _SECTIONS = {
     "sessions_per_user": 1,
     "session_duration": 2,
     "session_gaps": 3,
+    "session_composition": 4,
+    "circadian": 5,
     # numeric aliases
-    "1": 1, "2": 2, "3": 3,
+    "1": 1, "2": 2, "3": 3, "4": 4, "5": 5,
 }
 
 
@@ -72,12 +76,21 @@ def main():
         default="raw-session-analysis/plots",
         help="Output directory for plots (default: %(default)s).",
     )
+    parser.add_argument(
+        "--clip-at",
+        type=int,
+        default=None,
+        help="Clip linear histograms & PDFs at this percentile (e.g., 99). "
+             "Default: no clipping.",
+    )
     args = parser.parse_args()
 
     skip = _parse_sections(args.skip)
     only = _parse_sections(args.only)
 
     _common.set_output_dir(Path(args.output_dir).resolve())
+    if args.clip_at is not None:
+        _common.CLIP_PCT = args.clip_at
 
     if args.source:
         sources = [Source(s) for s in args.source.split(",")]
@@ -107,6 +120,16 @@ def main():
         if _should_run(3, skip, only):
             _banner(3)
             s3.run(source)
+            sections_run += 1
+
+        if _should_run(4, skip, only):
+            _banner(4)
+            s4.run(source)
+            sections_run += 1
+
+        if _should_run(5, skip, only):
+            _banner(5)
+            s5.run(source)
             sections_run += 1
 
     elapsed = time_mod.time() - total_t0

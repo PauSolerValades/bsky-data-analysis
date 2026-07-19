@@ -1,8 +1,8 @@
 """
 §3 — Inter-session gaps.
 
+Raw (all sessions) + real (duration_s > 0) side-by-side.
 Histogram, log-log, PDF for both overall gaps and per-user median gaps.
-One file per plot, per source.
 """
 
 import sys
@@ -21,14 +21,20 @@ from _common import (
 )
 
 
-def _fetch_all_gaps(conn, table: str) -> np.ndarray:
-    """Fetch all inter-session gaps (seconds) for a table."""
+def _fetch_gaps(conn, table: str, where: str | None = None) -> np.ndarray:
+    """Fetch all inter-session gaps (seconds) for a table.
+
+    If *where* is provided, filters sessions first (e.g. duration_s > 0).
+    """
     sql = f"""
         SELECT did, session_start, session_end
         FROM {table}
-        ORDER BY did, session_start
     """
-    print(f"  Fetching all gaps from {table} ...", file=sys.stderr)
+    if where:
+        sql += f" WHERE {where}"
+    sql += " ORDER BY did, session_start"
+
+    print(f"  Fetching gaps{'' if not where else ' (' + where + ')'} ...", file=sys.stderr)
     t0 = time_mod.time()
 
     with conn.cursor() as cur:
@@ -54,32 +60,50 @@ def _fetch_all_gaps(conn, table: str) -> np.ndarray:
     return result
 
 
+def _run_one(source: Source, conn, where: str | None, tag: str):
+    """Produce gap plots for a single filter variant."""
+    label_suffix = f" ({tag})" if tag else ""
+
+    # ── Per-user median gaps ──
+    stats = fetch_per_user_stats(conn, source.table, where=where)
+    median_gap = stats["median_gap"]
+    print_percentiles(median_gap, f"per-user median gap ({source.value}{label_suffix})")
+
+    safe_tag = tag.replace(" ", "_") if tag else "all"
+
+    pfx = f"Per-user median gap ({tag})" if tag else "Per-user median gap"
+    save_hist(median_gap, source, "03", f"{pfx} (hist)",
+              xlabel="Per-user median gap (s)")
+    save_loglog(median_gap, source, "03", f"{pfx} (log-log)",
+                xlabel="Per-user median gap (s)")
+    save_pdf(median_gap, source, "03", f"{pfx} (PDF)",
+             xlabel="Per-user median gap (s)")
+
+    # ── All gaps (overall) ──
+    all_gaps = _fetch_gaps(conn, source.table, where=where)
+    print_percentiles(all_gaps, f"all gaps ({source.value}{label_suffix})")
+
+    gfx = f"All gaps ({tag})" if tag else "All gaps"
+    save_hist(all_gaps, source, "03", f"{gfx} (hist)",
+              xlabel="Inter-session gap (s)")
+    save_loglog(all_gaps, source, "03", f"{gfx} (log-log)",
+                xlabel="Inter-session gap (s)")
+    save_pdf(all_gaps, source, "03", f"{gfx} (PDF)",
+             xlabel="Inter-session gap (s)")
+
+
 def run(source: Source):
-    """Produce all §3 plots for a single source."""
+    """Produce all §3 plots for a single source — raw + real."""
     print(f"\n── §3: Inter-session gaps — {source.value} ──", file=sys.stderr)
 
     conn = get_connection()
-    stats = fetch_per_user_stats(conn, source.table)
-    median_gap = stats["median_gap"]
-    print_percentiles(median_gap, f"per-user median gap ({source.value})")
 
-    # ── All gaps (overall) ──
-    all_gaps = _fetch_all_gaps(conn, source.table)
-    print_percentiles(all_gaps, f"all gaps ({source.value})")
+    # Raw: all sessions
+    print("\n  [raw — all sessions]", file=sys.stderr)
+    _run_one(source, conn, where=None, tag="raw")
 
-    save_hist(all_gaps, source, "03", "All gaps (hist)",
-              xlabel="Inter-session gap (s)")
-    save_loglog(all_gaps, source, "03", "All gaps (log-log)",
-                xlabel="Inter-session gap (s)")
-    save_pdf(all_gaps, source, "03", "All gaps (PDF)",
-             xlabel="Inter-session gap (s)")
-
-    # ── Per-user median gaps ──
-    save_hist(median_gap, source, "03", "Per-user median gap (hist)",
-              xlabel="Per-user median gap (s)")
-    save_loglog(median_gap, source, "03", "Per-user median gap (log-log)",
-                xlabel="Per-user median gap (s)")
-    save_pdf(median_gap, source, "03", "Per-user median gap (PDF)",
-             xlabel="Per-user median gap (s)")
+    # Filtered: real sessions only (duration > 0)
+    print("\n  [real — duration_s > 0]", file=sys.stderr)
+    _run_one(source, conn, where="duration_s > 0", tag="real")
 
     conn.close()
