@@ -61,6 +61,7 @@ N_BINS = 80
 REPO = Path(__file__).resolve().parent.parent.parent
 OUT = Path(__file__).resolve().parent / "plots"
 OUT.mkdir(parents=True, exist_ok=True)
+OUT_SUBDIR: str = ""
 
 CLIP_PCT: int | None = None  # set by main.py via --clip-at
 
@@ -70,6 +71,12 @@ def set_output_dir(path: str | Path) -> None:
     global OUT
     OUT = Path(path)
     OUT.mkdir(parents=True, exist_ok=True)
+
+
+def set_subdir(name: str) -> None:
+    """Set subdirectory for subsequent saves. Pass "" to reset."""
+    global OUT_SUBDIR
+    OUT_SUBDIR = name
 
 ENV_PATH = REPO / ".env"
 load_dotenv(ENV_PATH)
@@ -170,7 +177,8 @@ def _filename(section: str, source: Source, kind: str) -> str:
 
 
 def savefig(fig, name: str, dpi: int = 150):
-    path = OUT / name
+    path = OUT / OUT_SUBDIR / name if OUT_SUBDIR else OUT / name
+    path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"  → {path}", file=sys.stderr)

@@ -18,11 +18,13 @@ from _common import (
     save_hist,
     save_loglog,
     save_pdf,
+    set_subdir,
 )
 
 
 def run(source: Source):
     """Produce all §1 plots for a single source."""
+    set_subdir("sessions_per_user")
     print(f"\n── §1: Sessions per user — {source.value} ──", file=sys.stderr)
 
     conn = get_connection()

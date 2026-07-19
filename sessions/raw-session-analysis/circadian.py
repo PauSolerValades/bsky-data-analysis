@@ -14,6 +14,7 @@ from _common import (
     Source,
     get_connection,
     savefig,
+    set_subdir,
     OUT,
     N_BINS,
 )
@@ -24,6 +25,7 @@ US_PER_HOUR = 3_600_000_000
 
 def run(source: Source):
     """Produce §5 plots for a single source."""
+    set_subdir("circadian")
     print(f"\n── §5: Circadian density — {source.value} ──", file=sys.stderr)
 
     conn = get_connection()
@@ -65,11 +67,12 @@ def run(source: Source):
 
 
 def _hour_hist(hours: np.ndarray, source: Source, section: str,
-               title: str, fname: str, xlabel: str):
-    """Simple 24-bin histogram."""
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.hist(hours, bins=24, range=(0, 24), color=source.color,
-            alpha=0.85, edgecolor="white", linewidth=0.5)
+               title: str, fname: str, xlabel: str, bins_per_hour: int = 4):
+    """Histogram with configurable bin resolution."""
+    n_bins = 24 * bins_per_hour
+    fig, ax = plt.subplots(figsize=(14, 5))
+    ax.hist(hours, bins=n_bins, range=(0, 24), color=source.color,
+            alpha=0.85, edgecolor="white", linewidth=0.3)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Number of sessions")
     ax.set_title(f"{source.label}\n{title}")
@@ -80,12 +83,13 @@ def _hour_hist(hours: np.ndarray, source: Source, section: str,
 
 
 def _hour_kde(hours: np.ndarray, source: Source, section: str,
-              title: str, fname: str, xlabel: str):
-    """KDE + histogram for circular-ish hour data."""
+              title: str, fname: str, xlabel: str, bins_per_hour: int = 4):
+    """KDE + histogram with configurable bin resolution."""
     from scipy.stats import gaussian_kde
 
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.hist(hours, bins=72, range=(0, 24), density=True,
+    n_bins = 24 * bins_per_hour
+    fig, ax = plt.subplots(figsize=(14, 5))
+    ax.hist(hours, bins=n_bins, range=(0, 24), density=True,
             color=source.color, alpha=0.3, edgecolor="none", label="Histogram")
 
     # KDE — pad edges to handle the midnight wrap

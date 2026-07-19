@@ -18,6 +18,7 @@ from _common import (
     save_hist,
     save_loglog,
     save_pdf,
+    set_subdir,
 )
 
 
@@ -62,6 +63,8 @@ def _fetch_gaps(conn, table: str, where: str | None = None) -> np.ndarray:
 
 def _run_one(source: Source, conn, where: str | None, tag: str):
     """Produce gap plots for a single filter variant."""
+    subdir = "non_zero_gaps" if tag == "real" else "gaps"
+    set_subdir(subdir)
     label_suffix = f" ({tag})" if tag else ""
 
     # ── Per-user median gaps ──

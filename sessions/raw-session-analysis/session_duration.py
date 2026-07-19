@@ -16,11 +16,14 @@ from _common import (
     save_hist,
     save_loglog,
     save_pdf,
+    set_subdir,
 )
 
 
 def _run_one(source: Source, conn, where: str | None, tag: str):
     """Produce duration plots for a single filter variant."""
+    subdir = "non_zero_duration" if tag == "real" else "duration"
+    set_subdir(subdir)
     label_suffix = f" ({tag})" if tag else ""
 
     # ── Overall durations ──

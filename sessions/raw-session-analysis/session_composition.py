@@ -18,12 +18,14 @@ from _common import (
     save_hist,
     save_loglog,
     save_pdf,
+    set_subdir,
     OUT,
 )
 
 
 def run(source: Source):
     """Produce §4 outputs for a single source."""
+    set_subdir("session_composition")
     print(f"\n── §4: Solo vs real sessions — {source.value} ──", file=sys.stderr)
 
     conn = get_connection()
@@ -62,7 +64,10 @@ def run(source: Source):
     real_users = [v for v in user_real.values()]
 
     # ── TSV ──
-    tsv_path = OUT / f"04_{source.value}_solo_vs_real.tsv"
+    from _common import OUT_SUBDIR
+    tsv_dir = OUT / OUT_SUBDIR if OUT_SUBDIR else OUT
+    tsv_dir.mkdir(parents=True, exist_ok=True)
+    tsv_path = tsv_dir / f"04_{source.value}_solo_vs_real.tsv"
     with open(tsv_path, "w") as f:
         f.write("\t".join([
             "source", "n_users", "n_sessions_total", "n_solo", "n_real",
