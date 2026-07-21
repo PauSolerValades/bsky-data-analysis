@@ -123,6 +123,24 @@ def main():
     print(f"  {'TOTAL':<20s} {total_p:>12,}")
     print()
 
+    # ── TSV: both tables merged ─────────────────────────────────────────
+
+    tsv_path = OUT / "event_types.tsv"
+    global_total = total_r + total_p
+    with open(tsv_path, "w") as f:
+        f.write("name\ttype\tnumber\tpercentage\n")
+        # Records
+        for coll, op, cnt in rows:
+            name_clean = coll.replace("app.bsky.", "")
+            pct = 100 * cnt / global_total
+            f.write(f"{name_clean}\t{op}\t{cnt}\t{pct:.2f}\n")
+        # Posts
+        for label, cnt in [("feed.post", n_top), ("feed.post.reply", n_reply)]:
+            pct = 100 * cnt / global_total
+            f.write(f"{label}\tcreate\t{cnt}\t{pct:.2f}\n")
+    print(f"  → saved {tsv_path}  (global total: {global_total:,})")
+    print()
+
     # ── §4: merged event types (records + posts) ───────────────────────
 
     merged = query(conn, """
