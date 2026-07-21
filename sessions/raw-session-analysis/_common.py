@@ -20,12 +20,18 @@ from scipy.stats import gaussian_kde
 
 
 class Source(Enum):
-    CORE = "core"
-    ALL = "all"
+    CORE_TUKEY    = "core_tukey"
+    ALL_TUKEY     = "all_tukey"
+    ALL_HDBSCAN   = "all_hdbscan"
+    ALL_HDBSCAN_E30  = "all_hdbscan_e30"
+    ALL_HDBSCAN_E120 = "all_hdbscan_e120"
+    ALL_HDBSCAN_E300 = "all_hdbscan_e300"
+    ALL_HDBSCAN_E120_MS5  = "all_hdbscan_e120_ms5"
+    ALL_HDBSCAN_E120_MS10 = "all_hdbscan_e120_ms10"
 
     @property
     def table(self) -> str:
-        return _SOURCE_TABLES[self]
+        return f"pau_db.sessions_raw_{self.value}"
 
     @property
     def color(self) -> str:
@@ -36,19 +42,26 @@ class Source(Enum):
         return _SOURCE_LABELS[self]
 
 
-_SOURCE_TABLES = {
-    Source.CORE: "pau_db.sessions_raw_core",
-    Source.ALL: "pau_db.sessions_raw_all",
-}
-
 _SOURCE_COLORS = {
-    Source.CORE: "#4A90D9",
-    Source.ALL: "#E6842A",
+    Source.CORE_TUKEY:    "#4A90D9",
+    Source.ALL_TUKEY:     "#E6842A",
+    Source.ALL_HDBSCAN:   "#2ECC71",
+    Source.ALL_HDBSCAN_E30:  "#27AE60",
+    Source.ALL_HDBSCAN_E120: "#1ABC9C",
+    Source.ALL_HDBSCAN_E300: "#16A085",
+    Source.ALL_HDBSCAN_E120_MS5:  "#8E44AD",
+    Source.ALL_HDBSCAN_E120_MS10: "#C0392B",
 }
 
 _SOURCE_LABELS = {
-    Source.CORE: "Core (bsky.records + posts)",
-    Source.ALL: "All (pau_db.all_events)",
+    Source.CORE_TUKEY:    "Core Tukey",
+    Source.ALL_TUKEY:     "All Tukey",
+    Source.ALL_HDBSCAN:   "All HDBSCAN (ε=60)",
+    Source.ALL_HDBSCAN_E30:  "All HDBSCAN (ε=30)",
+    Source.ALL_HDBSCAN_E120: "All HDBSCAN (ε=120)",
+    Source.ALL_HDBSCAN_E300: "All HDBSCAN (ε=300)",
+    Source.ALL_HDBSCAN_E120_MS5:  "All HDBSCAN (ε=120, ms=5)",
+    Source.ALL_HDBSCAN_E120_MS10: "All HDBSCAN (ε=120, ms=10)",
 }
 
 N_BINS = 80
@@ -201,7 +214,7 @@ def save_hist(
         title_extra = f" (P{CLIP_PCT} clipped)"
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.hist(data, bins=N_BINS, color=source.color, alpha=0.8, edgecolor="none")
+    ax.hist(data, bins="auto", color=source.color, alpha=0.8, edgecolor="none")
     ax.axvline(np.median(data), color="black", linestyle="--", linewidth=1.5)
     ax.text(
         np.median(data) * 1.05,
@@ -281,7 +294,7 @@ def save_pdf(
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.hist(
         data,
-        bins=N_BINS,
+        bins="auto",
         density=True,
         color=source.color,
         alpha=0.4,

@@ -11,4 +11,5 @@ dependencies = [
     "matplotlib",
     "scipy",
     "powerlaw",
+    "hdbscan",
 ]

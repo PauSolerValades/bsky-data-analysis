@@ -5,25 +5,18 @@
 #     "pymysql",
 #     "python-dotenv",
 #     "numpy",
+#     "hdbscan",
 # ]
 # ///
 """
-Session creation — Bluesky firehose → pau_db.sessions_{core,all}.
+Session creation — Bluesky firehose → pau_db.sessions_raw_*.
 
 Sources:
-  • "core" → bsky.records + bsky.posts  (all event types)
-  • "all"  → pau_db.all_events           (6 event types, pre-filtered)
-
-Method (per-user adaptive IQR / Tukey's fences):
-  • Fetch timestamps per user from the chosen source.
-  • Compute inter-arrival gaps.
-  • Per-user threshold = max(Q3 + 1.5 × IQR, 120 s).
-    Fallback = 60 min if < 4 gaps.
-  • Cluster events into sessions wherever gap > threshold.
+  • core_tukey  → bsky.records + bsky.posts, Tukey clustering
+  • all_tukey   → pau_db.all_events,          Tukey clustering
 
 Usage:
-    uv run sessions/session-creation/create-sessions.py core
-    uv run sessions/session-creation/create-sessions.py all
+    uv run session-creation/create-sessions.py all_tukey --did-from-file sample_dids.txt --summary
 """
 
 import argparse
@@ -39,7 +32,7 @@ import pymysql
 from dotenv import load_dotenv
 
 # ---------------------------------------------------------------------------
-# Config — load .env from repo root
+# Config
 # ---------------------------------------------------------------------------
 
 ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -54,111 +47,102 @@ DB_CONFIG = {
     "charset": "utf8mb4",
 }
 
-BATCH_SIZE = 2000       # DIDs per event-fetch query
-INSERT_FLUSH = 5_000    # rows per INSERT batch (StarRocks limit: 10k)
+BATCH_SIZE = 2000
+INSERT_FLUSH = 2_500
 
 
 # ---------------------------------------------------------------------------
-# Source — single if/elif, single source of truth
+# Source enum
 # ---------------------------------------------------------------------------
 
 class Source(Enum):
-    CORE = "core"
-    ALL = "all"
+    CORE_TUKEY    = "core_tukey"
+    ALL_TUKEY     = "all_tukey"
+    ALL_HDBSCAN   = "all_hdbscan"
 
 
-def _source_queries(source: Source) -> dict:
+def _source_queries(source: Source, hdbscan_epsilon: int | None = None, hdbscan_mcs: int = 2, hdbscan_ms: int = 1) -> dict:
     """Return all source-dependent queries and metadata."""
-    if source is Source.CORE:
-        return {
-            "dids": """
-                SELECT DISTINCT did FROM (
-                    SELECT did FROM bsky.records
-                    UNION
-                    SELECT did FROM bsky.posts
-                ) t
-                ORDER BY did
-            """,
-            # {placeholders} is filled per batch with ",".join(["%s"] * len(dids))
-            "events": """
-                SELECT did, time_us
-                FROM bsky.records
-                WHERE did IN ({placeholders})
-                UNION ALL
-                SELECT did, time_us
-                FROM bsky.posts
-                WHERE did IN ({placeholders})
-                ORDER BY did, time_us
-            """,
-            "events_params_factor": 2,   # UNION ALL → dids repeated for each SELECT
-            "target": "pau_db.sessions_raw_core",
-            "create": """
-                CREATE TABLE IF NOT EXISTS pau_db.sessions_raw_core (
-                    `did`           varchar(128) NOT NULL,
-                    `session_start` bigint NOT NULL,
-                    `session_end`   bigint NOT NULL,
-                    `duration_s`    double NOT NULL
-                ) ENGINE=OLAP
-                DUPLICATE KEY(`did`, `session_start`)
-                DISTRIBUTED BY HASH(`did`) BUCKETS 32
-                PROPERTIES ("replication_num" = "1")
-            """,
-            "insert": """
-                INSERT INTO pau_db.sessions_raw_core
-                    (did, session_start, session_end, duration_s)
-                VALUES (%s, %s, %s, %s)
-            """,
-        }
-    elif source is Source.ALL:
-        return {
-            "dids": """
-                SELECT DISTINCT did
-                FROM pau_db.all_events
-                ORDER BY did
-            """,
-            "events": """
-                SELECT did, time_us
-                FROM pau_db.all_events
-                WHERE did IN ({placeholders})
-                ORDER BY did, time_us
-            """,
-            "events_params_factor": 1,
-            "target": "pau_db.sessions_raw_all",
-            "create": """
-                CREATE TABLE IF NOT EXISTS pau_db.sessions_raw_all (
-                    `did`           varchar(128) NOT NULL,
-                    `session_start` bigint NOT NULL,
-                    `session_end`   bigint NOT NULL,
-                    `duration_s`    double NOT NULL
-                ) ENGINE=OLAP
-                DUPLICATE KEY(`did`, `session_start`)
-                DISTRIBUTED BY HASH(`did`) BUCKETS 32
-                PROPERTIES ("replication_num" = "1")
-            """,
-            "insert": """
-                INSERT INTO pau_db.sessions_raw_all
-                    (did, session_start, session_end, duration_s)
-                VALUES (%s, %s, %s, %s)
-            """,
-        }
+    is_core = source.value.startswith("core")
+
+    if is_core:
+        dids_sql = """
+            SELECT DISTINCT did FROM (
+                SELECT did FROM bsky.records
+                UNION
+                SELECT did FROM bsky.posts
+            ) t
+            ORDER BY did
+        """
+        events_sql = """
+            SELECT did, time_us
+            FROM bsky.records
+            WHERE did IN ({placeholders})
+            UNION ALL
+            SELECT did, time_us
+            FROM bsky.posts
+            WHERE did IN ({placeholders})
+            ORDER BY did, time_us
+        """
+        params_factor = 2
+    else:
+        dids_sql = """
+            SELECT DISTINCT did
+            FROM pau_db.all_events_v2
+            ORDER BY did
+        """
+        events_sql = """
+            SELECT did, time_us
+            FROM pau_db.all_events_v2
+            WHERE did IN ({placeholders})
+            ORDER BY did, time_us
+        """
+        params_factor = 1
+
+    target = f"pau_db.sessions_raw_{source.value}"
+    if hdbscan_epsilon is not None:
+        target += f"_e{hdbscan_epsilon}"
+    if hdbscan_mcs != 2:
+        target += f"_mcs{hdbscan_mcs}"
+    if hdbscan_ms not in (1, None):
+        target += f"_ms{hdbscan_ms}"
+
+    return {
+        "dids": dids_sql,
+        "events": events_sql,
+        "events_params_factor": params_factor,
+        "target": target,
+        "create": f"""
+            CREATE TABLE IF NOT EXISTS {target} (
+                `did`           varchar(128) NOT NULL,
+                `session_start` bigint NOT NULL,
+                `session_end`   bigint NOT NULL,
+                `duration_s`    double NOT NULL,
+                `is_singleton`  tinyint NOT NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`did`, `session_start`)
+            DISTRIBUTED BY HASH(`did`) BUCKETS 32
+            PROPERTIES ("replication_num" = "1")
+        """,
+        "insert": f"""
+            INSERT INTO {target}
+                (did, session_start, session_end, duration_s, is_singleton)
+            VALUES (%s, %s, %s, %s, %s)
+        """,
+    }
 
 
 # ---------------------------------------------------------------------------
-# Generic DB helpers
+# DB helpers
 # ---------------------------------------------------------------------------
 
-def _execute(conn: pymysql.Connection, query: str, params: list | None = None) -> list[tuple]:
+def _execute(conn, query, params=None):
     with conn.cursor() as cur:
         cur.execute(query, params)
         return cur.fetchall()
 
 
-def _flush_inserts(
-    conn: pymysql.Connection,
-    insert_sql: str,
-    buffer: list[tuple],
-) -> None:
-    """Flush the session insert buffer to the database."""
+def _flush_inserts(conn, insert_sql, buffer):
     if not buffer:
         return
     with conn.cursor() as cur:
@@ -167,101 +151,151 @@ def _flush_inserts(
     buffer.clear()
 
 
-def load_dids(conn: pymysql.Connection, did_query: str) -> list[str]:
+def load_dids(conn, did_query):
     return [row[0] for row in _execute(conn, did_query)]
 
 
-def fetch_user_timestamps(
-    conn: pymysql.Connection,
-    dids: list[str],
-    events_query_tpl: str,
-    params_factor: int,
-) -> dict[str, list[int]]:
-    """Return {did: [t1_us, t2_us, ...]} sorted by time for a batch of DIDs."""
+def fetch_user_timestamps(conn, dids, events_query_tpl, params_factor):
     if not dids:
         return {}
-
     placeholders = ",".join(["%s"] * len(dids))
     query = events_query_tpl.format(placeholders=placeholders)
     params = dids * params_factor
-
-    result: dict[str, list[int]] = defaultdict(list)
+    result = defaultdict(list)
     for did, time_us in _execute(conn, query, params):
         result[did].append(int(time_us))
     return dict(result)
 
 
 # ---------------------------------------------------------------------------
-# Tukey clustering (source-agnostic)
+# Clustering methods
 # ---------------------------------------------------------------------------
 
-def tukey_cluster(
-    timestamps_us: list[int],
-    iqr_multiplier: float = 1.5,
-) -> list[tuple[int, int]] | None:
-    """Cluster sorted timestamps into sessions using Tukey's fences.
-
-    Threshold = Q3 + k × IQR, computed directly on microsecond gaps.
-    Returns a list of (start_us, end_us) boundaries, or None if the
-    user has fewer than 5 events (4 gaps) — not enough to compute IQR.
-    """
-    if len(timestamps_us) < 5:
-        return None
-
-    gaps = np.diff(np.array(timestamps_us, dtype=np.int64))
-    q1, q3 = np.percentile(gaps, [25, 75])
-    threshold = int(q3 + iqr_multiplier * (q3 - q1))
-
-    sessions: list[tuple[int, int]] = []
-    cur_start = timestamps_us[0]
-    cur_end = timestamps_us[0]
-
-    for i in range(1, len(timestamps_us)):
-        t = timestamps_us[i]
-        if t - timestamps_us[i - 1] > threshold:
-            sessions.append((cur_start, cur_end))
+def _cluster_events(timestamps, threshold_us):
+    """Common: cluster sorted timestamps using a per-user threshold."""
+    sessions: list[tuple[int, int, bool]] = []
+    cur_start = timestamps[0]
+    cur_end = timestamps[0]
+    for i in range(1, len(timestamps)):
+        t = timestamps[i]
+        if t - timestamps[i - 1] > threshold_us:
+            sessions.append((cur_start, cur_end, False))
             cur_start = t
         cur_end = t
-
-    sessions.append((cur_start, cur_end))
+    sessions.append((cur_start, cur_end, False))
     return sessions
+
+
+def tukey_cluster(timestamps_us: list[int]) -> list[tuple[int, int, bool]] | None:
+    """Tukey: Q3 + 1.5 × IQR on microsecond gaps."""
+    if len(timestamps_us) < 5:
+        return None
+    gaps = np.diff(np.array(timestamps_us, dtype=np.int64))
+    q1, q3 = np.percentile(gaps, [25, 75])
+    threshold = int(q3 + 1.5 * (q3 - q1))
+    return _cluster_events(timestamps_us, threshold)
+
+
+def cluster(timestamps_us: list[int]) -> list[tuple[int, int, bool]] | None:
+    """Tukey clustering with timestamp deduplication."""
+    if len(timestamps_us) < 5:
+        return None
+    unique = sorted(set(timestamps_us))
+    if len(unique) < 5:
+        return None
+    return tukey_cluster(unique)
+
+
+def hdbscan_cluster(
+    timestamps_us: list[int],
+    min_cluster_size: int = 2,
+    min_samples: int = 1,
+    cluster_selection_epsilon: float = 60.0,
+) -> list[tuple[int, int, bool]] | None:
+    """HDBSCAN clustering on 1D timestamps.
+
+    Returns list of (start_us, end_us, is_singleton).
+    Clustered events have is_singleton=False.
+    Unclustered (noise) events become singletons with is_singleton=True.
+    """
+    import hdbscan
+
+    unique = sorted(set(timestamps_us))
+    if len(unique) < 2:
+        return None
+
+    t0 = unique[0]
+    X = np.array([[t - t0] for t in unique], dtype=np.float64) / 1_000_000
+
+    clusterer = hdbscan.HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon,
+    )
+    labels = clusterer.fit_predict(X)
+
+    sessions: list[tuple[int, int, bool]] = []
+    cur_label = None
+    cur_start: int | None = None
+    cur_end: int | None = None
+
+    for i, label in enumerate(labels):
+        t = unique[i]
+        if label == -1:
+            # Noise → singleton
+            if cur_start is not None:
+                sessions.append((cur_start, cur_end, False))
+                cur_start = None
+            sessions.append((t, t, True))
+            continue
+        int_label = int(label)
+        if int_label != cur_label:
+            if cur_start is not None:
+                sessions.append((cur_start, cur_end, False))
+            cur_start = t
+            cur_label = int_label
+        cur_end = t
+
+    if cur_start is not None:
+        sessions.append((cur_start, cur_end, False))
+
+    return sessions if sessions else None
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Create sessions from Bluesky firehose data (Tukey IQR method)."
-    )
+def main():
+    parser = argparse.ArgumentParser(description="Create sessions from Bluesky firehose data.")
     parser.add_argument(
-        "table_source",
-        type=str,
+        "table_source", type=str,
         choices=[s.value for s in Source],
-        help="Data source: 'core' (bsky.records + bsky.posts) or 'all' (pau_db.all_events).",
+        help="Source×method (e.g., all_tukey).",
+    )
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--did-from-file", type=str, default=None)
+    parser.add_argument("--summary", action="store_true")
+    parser.add_argument(
+        "--hdbscan-epsilon", type=int, default=None,
+        help="cluster_selection_epsilon for HDBSCAN in seconds. "
+             "Appended to table name (e.g., _e30).",
     )
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=BATCH_SIZE,
-        help=f"DIDs per event-fetch query (default: {BATCH_SIZE}).",
+        "--hdbscan-min-cluster-size", type=int, default=2,
+        help="min_cluster_size for HDBSCAN (default: 2).",
     )
     parser.add_argument(
-        "--did-from-file",
-        type=str,
-        default=None,
-        help="Path to a file with one DID per line (skips the DID DB query).",
-    )
-    parser.add_argument(
-        "--summary",
-        action="store_true",
-        help="Print aggregate statistics after completion.",
+        "--hdbscan-min-samples", type=int, default=1,
+        help="min_samples for HDBSCAN (default: 1).",
     )
     args = parser.parse_args()
 
     source = Source(args.table_source)
-    q = _source_queries(source)
+    hdbscan_eps = args.hdbscan_epsilon
+    hdbscan_mcs = args.hdbscan_min_cluster_size
+    hdbscan_ms = args.hdbscan_min_samples
+    q = _source_queries(source, hdbscan_epsilon=hdbscan_eps, hdbscan_mcs=hdbscan_mcs, hdbscan_ms=hdbscan_ms)
 
     print(f"Connecting to DB ({DB_CONFIG['host']}:{DB_CONFIG['port']}) ...", file=sys.stderr)
     conn = pymysql.connect(**DB_CONFIG)
@@ -280,7 +314,7 @@ def main() -> None:
             print(f"  → {len(dids):,} DIDs in {time_mod.time() - t0:.0f}s", file=sys.stderr)
 
         if not dids:
-            print("No DIDs found. Check the source table.", file=sys.stderr)
+            print("No DIDs found.", file=sys.stderr)
             return
 
         # ── 2. Create output table ──────────────────────────────────
@@ -288,17 +322,14 @@ def main() -> None:
         conn.commit()
         print(f"Table {q['target']} ready.", file=sys.stderr)
 
-        # ── 3. Batch-fetch timestamps, cluster, write ────────────────
-        batches = [
-            dids[i : i + args.batch_size]
-            for i in range(0, len(dids), args.batch_size)
-        ]
+        # ── 3. Batch loop ────────────────────────────────────────────
+        batches = [dids[i:i + args.batch_size] for i in range(0, len(dids), args.batch_size)]
         total_batches = len(batches)
 
-        insert_buffer: list[tuple] = []
+        insert_buffer = []
         total_sessions = 0
         seen_users = 0
-        all_durations: list[float] = []
+        all_durations = []
 
         t0 = time_mod.time()
 
@@ -309,25 +340,34 @@ def main() -> None:
 
             for did in batch_dids:
                 timestamps = user_ts.get(did, [])
-                sessions = tukey_cluster(timestamps)
+
+                if source.value.endswith("hdbscan"):
+                    sessions = hdbscan_cluster(
+                        timestamps,
+                        cluster_selection_epsilon=hdbscan_eps or 60,
+                        min_cluster_size=hdbscan_mcs,
+                        min_samples=hdbscan_ms or 1,
+                    )
+                else:
+                    sessions = cluster(timestamps)
+
                 if sessions is None:
                     continue
 
                 seen_users += 1
                 total_sessions += len(sessions)
 
-                for start_us, end_us in sessions:
+                for start_us, end_us, is_singleton in sessions:
                     duration_s = (end_us - start_us) / 1_000_000
                     insert_buffer.append((
-                        did,
-                        start_us,
-                        end_us,
+                        did, start_us, end_us,
                         round(duration_s, 3),
+                        1 if is_singleton else 0,
                     ))
                     all_durations.append(duration_s)
 
-                if len(insert_buffer) >= INSERT_FLUSH:
-                    _flush_inserts(conn, q["insert"], insert_buffer)
+                    if len(insert_buffer) >= INSERT_FLUSH:
+                        _flush_inserts(conn, q["insert"], insert_buffer)
 
             _flush_inserts(conn, q["insert"], insert_buffer)
 
@@ -343,11 +383,9 @@ def main() -> None:
                 )
 
         _flush_inserts(conn, q["insert"], insert_buffer)
-
         elapsed = time_mod.time() - t0
         print(f"\nDone in {elapsed:.0f}s", file=sys.stderr)
 
-        # ── 4. Summary ───────────────────────────────────────────────
         if args.summary and all_durations:
             _print_summary(all_durations, total_sessions, seen_users)
 
@@ -362,17 +400,8 @@ def main() -> None:
         print("Connection closed.", file=sys.stderr)
 
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
-
-def _print_summary(
-    durations: list[float],
-    total_sessions: int,
-    total_users: int,
-) -> None:
+def _print_summary(durations, total_sessions, total_users):
     d = np.array(durations)
-
     print("\n" + "=" * 55, file=sys.stderr)
     print(f"  SESSION SUMMARY  (n={total_sessions:,} sessions, {total_users:,} users)", file=sys.stderr)
     print("=" * 55, file=sys.stderr)
