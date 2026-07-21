@@ -38,7 +38,7 @@ venv/
 
 # Large CSV / Parquet / TSV exports
 *.csv
-*.tsv
+#*.tsv
 *.parquet
 
 # SQLite databases
