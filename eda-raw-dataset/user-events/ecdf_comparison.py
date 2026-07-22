@@ -1,17 +1,18 @@
-"""Plain histograms — events per user, per day, per hour.
+"""ECDF comparison — events per user, per day, per hour.
 
-Three separate log-log histograms showing the empirical distributions.
+All three empirical CDFs on one plot (3 colors) with their
+lognormal CDF fits overlaid (same 3 colors, dashed).
 """
 
 import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 import numpy as np
 import pymysql
 import seaborn as sns
 from dotenv import load_dotenv
+from scipy import stats
 
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
@@ -19,6 +20,7 @@ plt.rcParams.update({
     "text.usetex": False,
     "axes.labelsize": 11,
     "font.size": 11,
+    "legend.fontsize": 10,
     "xtick.labelsize": 10,
     "ytick.labelsize": 10,
 })
@@ -111,46 +113,6 @@ def fetch_events_per_hour(conn):
     return np.array([total / max(hours, 1) for total, hours in rows])
 
 
-# ── Plotting ──────────────────────────────────────────────────────────────
-
-def plot_histogram(data, title, xlabel, filename):
-    """Single log-log histogram."""
-    data = data[data > 0]
-    lo = np.log10(data.min())
-    hi = np.log10(data.max())
-    bins = np.logspace(lo, hi, 80)
-
-    palette = sns.color_palette("colorblind")
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-
-    ax.hist(data, bins=bins, color=palette[0], alpha=0.7, edgecolor="white",
-            linewidth=0.2)
-
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel("Users")
-    ax.set_title(title, fontsize=12, fontweight="bold")
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-
-    # Stats box
-    text = (
-        f"n = {len(data):,}\n"
-        f"median = {np.median(data):,.1f}\n"
-        f"mean = {data.mean():,.1f}"
-    )
-    ax.text(0.95, 0.95, text, transform=ax.transAxes, ha="right", va="top",
-            fontsize=9, bbox=dict(boxstyle="round,pad=0.3",
-                                  facecolor="white", alpha=0.85))
-
-    fig.tight_layout()
-    path = OUT / filename
-    fig.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"  → saved {path}")
-
-
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
@@ -163,16 +125,76 @@ def main():
     data_hour = fetch_events_per_hour(conn)
     conn.close()
 
-    print(f"  events/user:  {len(data_user):,}")
-    print(f"  events/day:   {len(data_day):,}")
-    print(f"  events/hour:  {len(data_hour):,}\n")
+    datasets = [
+        (data_user, "Events per user"),
+        (data_day,  "Events per day"),
+        (data_hour, "Events per hour"),
+    ]
 
-    plot_histogram(data_user, "Events per user", "Events per user",
-                   "user_hist_events_per_user.png")
-    plot_histogram(data_day, "Events per active day", "Events per day",
-                   "user_hist_events_per_day.png")
-    plot_histogram(data_hour, "Events per active hour", "Events per hour",
-                   "user_hist_events_per_hour.png")
+    for data, name in datasets:
+        print(f"  {name:<18s} n={len(data):>10,}  median={np.median(data):>8.1f}")
+
+    # ── Fit lognormals ─────────────────────────────────────────────────
+
+    print("\n── Lognormal fits ──")
+    fits = []
+    for data, name in datasets:
+        shape, loc, scale = stats.lognorm.fit(data[data > 0], floc=0)
+        mu = np.log(scale)
+        sigma = shape
+        fits.append((mu, sigma, scale))
+        print(f"  {name:<18s} μ={mu:.4f}  σ={sigma:.4f}  median={np.exp(mu):.1f}")
+
+    # ── Plot ───────────────────────────────────────────────────────────
+
+    palette = sns.color_palette("colorblind", n_colors=3)
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    for i, (data, name) in enumerate(datasets):
+        data_pos = data[data > 0]
+        mu, sigma, scale = fits[i]
+
+        # ECDF
+        sorted_d = np.sort(data_pos)
+        y_ecdf = np.arange(1, len(sorted_d) + 1) / len(sorted_d)
+        ax.step(sorted_d, y_ecdf, where="post", color=palette[i], linewidth=1.2)
+
+        # Lognormal CDF
+        x_fit = np.logspace(np.log10(data_pos.min()), np.log10(data_pos.max()), 200)
+        y_cdf = stats.lognorm.cdf(x_fit, sigma, loc=0, scale=scale)
+        ax.plot(x_fit, y_cdf, color=palette[i], linestyle="--", linewidth=1.5,
+                alpha=0.7)
+
+    ax.set_xscale("log")
+    ax.set_xlabel("Events")
+    ax.set_ylabel("P(Events ≤ x)")
+    ax.set_title("ECDF + lognormal fit — events per user, day, hour",
+                 fontsize=12, fontweight="bold")
+
+    # Manual legend: solid = ECDF, dashed = lognormal fit
+    from matplotlib.lines import Line2D
+    handles = []
+    for i, (_, name) in enumerate(datasets):
+        handles.append(Line2D([0], [0], color=palette[i], linewidth=1.2, label=name))
+    handles.append(Line2D([0], [0], color="grey", linewidth=1.2, label="— ECDF"))
+    handles.append(Line2D([0], [0], color="grey", linewidth=1.5, linestyle="--", label="- - - lognormal fit"))
+    ax.legend(handles=handles, fontsize=9, loc="lower right")
+
+    fig.tight_layout()
+    path = OUT / "ecdf_comparison.png"
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\n  → saved {path}")
+
+    # ── Parameter TSV ─────────────────────────────────────────────────
+
+    tsv_path = OUT / "ecdf_parameters.tsv"
+    with open(tsv_path, "w") as f:
+        f.write("distribution\tmu\tsigma\tmedian\tn\n")
+        for (data, name), (mu, sigma, _) in zip(datasets, fits):
+            f.write(f"{name}\t{mu:.4f}\t{sigma:.4f}\t"
+                    f"{np.exp(mu):.1f}\t{len(data[data>0])}\n")
+    print(f"  → saved {tsv_path}")
 
     print("\nDone.")
 

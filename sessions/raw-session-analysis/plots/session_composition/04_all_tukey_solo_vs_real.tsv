@@ -1,0 +1,2 @@
+source	n_users	n_sessions_total	n_solo	n_real	pct_solo	n_users_all_solo	pct_users_all_solo	median_real_per_user_having_any
+all_tukey	78451	1692552	356323	1336229	21.1	0	0.0	5.0

@@ -1,0 +1,2 @@
+source	n_users	n_sessions_total	n_solo	n_real	pct_solo	n_users_all_solo	pct_users_all_solo	median_real_per_user_having_any
+all_hdbscan_e120_ms5	109522	1885472	1176769	708703	62.4	51657	47.2	2.0

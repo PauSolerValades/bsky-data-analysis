@@ -12,11 +12,22 @@ import matplotlib.pyplot as plt
 import polars as pl
 import seaborn as sns
 
+# ── Thesis styling ───────────────────────────────────────────────────────
+sns.set_theme(style="whitegrid")
+plt.rcParams.update({
+    "text.usetex": False,
+    "axes.labelsize": 11,
+    "font.size": 11,
+    "legend.fontsize": 11,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+})
+
 # ── Config ────────────────────────────────────────────────────────────────
 
 HERE = Path(__file__).resolve().parent
-TSV = HERE / "plots" / "event_types.tsv"
-OUT = HERE / "plots" / "event_type_distribution.png"
+TSV = HERE / "results" / "event_types.tsv"
+OUT = HERE / "results" / "event_type_distribution.png"
 
 # Fossil events excluded from the merged view
 FOSSILS = {
@@ -70,15 +81,14 @@ post_rows = pl.DataFrame(
 plot_df = pl.concat([df.select(["event", "number", "pct"]), post_rows])
 plot_df = plot_df.sort("pct")
 
-# Keep only the top 14 (rest are \<0.1% each, mentioned in text)
+# Keep only the top 14 (rest are <0.1% each, mentioned in text)
 plot_df = plot_df.tail(14)
 
 # ── Plot ──────────────────────────────────────────────────────────────────
 
-sns.set_style("whitegrid")
 fig, ax = plt.subplots(figsize=(10, 7))
 
-palette = sns.color_palette("Blues_d", n_colors=len(plot_df))
+palette = sns.color_palette("colorblind", n_colors=len(plot_df))
 bars = ax.barh(
     plot_df["event"], plot_df["pct"], color=palette, edgecolor="white", height=0.7
 )
@@ -94,13 +104,12 @@ for bar, pct in zip(bars, plot_df["pct"]):
 
 ax.set_xlabel("% of all events")
 ax.set_title(
-    "Event type distribution from 11/05–18/05, 240.6M total events",
+    "Event type distribution — 240.6M total events",
     fontsize=12,
     fontweight="bold",
 )
 ax.set_xlim(0, max(plot_df["pct"]) * 1.15)
 
-sns.despine()
 fig.tight_layout()
 fig.savefig(OUT, dpi=150, bbox_inches="tight")
 plt.close(fig)

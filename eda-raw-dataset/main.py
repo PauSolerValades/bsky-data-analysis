@@ -7,8 +7,20 @@ import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import seaborn as sns
 import pymysql
 from dotenv import load_dotenv
+
+# ── Thesis styling ───────────────────────────────────────────────────────
+sns.set_theme(style="whitegrid")
+plt.rcParams.update({
+    "text.usetex": False,  # LaTeX not installed; set True if available
+    "axes.labelsize": 11,
+    "font.size": 11,
+    "legend.fontsize": 11,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+})
 
 # ── Config ────────────────────────────────────────────────────────────────
 
@@ -42,7 +54,8 @@ def barh(labels, counts, title, out_name):
     pcts = [100 * c / total for c in counts]
 
     fig, ax = plt.subplots(figsize=(10, max(4, 0.35 * len(labels))))
-    colors = plt.cm.Blues([0.4 + 0.55 * (i / max(len(labels) - 1, 1)) for i in range(len(labels))])
+    palette = sns.color_palette("colorblind", len(labels))
+    colors = palette
     bars = ax.barh(range(len(labels)), counts, color=colors, edgecolor="white")
 
     for i, (c, p) in enumerate(zip(counts, pcts)):

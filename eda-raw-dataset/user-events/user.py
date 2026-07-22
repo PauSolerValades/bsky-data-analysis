@@ -43,7 +43,7 @@ DB = {
     "charset": "utf8mb4",
 }
 
-OUT = Path(__file__).resolve().parent / "results"
+OUT = Path(__file__).resolve().parent / "plots"
 OUT.mkdir(exist_ok=True)
 
 # Collections to exclude (protocol fossils, not real user activity)
