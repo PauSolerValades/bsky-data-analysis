@@ -1,0 +1,14 @@
+distribution	parameter	value
+powerlaw	alpha	2.9717
+powerlaw	xmin	1410
+powerlaw	KS	0.0305
+powerlaw	n_tail	23328
+powerlaw	pct_tail	0.76
+lognormal	mu	2.3990
+lognormal	sigma	1.8537
+lognormal	mode	0.4
+lognormal	median	11.0
+lognormal	mean	61.4
+comparison	LLR_powerlaw_vs_lognormal	-98.4
+comparison	p_value	0.0000
+comparison	winner	lognormal
