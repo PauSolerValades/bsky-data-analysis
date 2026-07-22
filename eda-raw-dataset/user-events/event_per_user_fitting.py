@@ -1,7 +1,8 @@
-"""Lognormal fit on the events-per-user distribution.
+"""Power-law vs lognormal comparison — events per user, per day, per hour.
 
-Fits a lognormal and compares against power-law to confirm
-lognormal is the better model.
+For each distribution, fits both models and reports the log-likelihood
+ratio test (R, p-value) to determine which distribution is a better fit.
+Outputs a TSV and a lognormal PDF plot for events per user.
 """
 
 import os
@@ -86,39 +87,85 @@ def fetch_events_per_user(conn):
     return np.array(data)
 
 
+def fetch_events_per_day(conn):
+    rows = query(conn, f"""
+        SELECT total, days
+        FROM (
+            SELECT did,
+                   COUNT(*) AS total,
+                   COUNT(DISTINCT DATE(FROM_UNIXTIME(time_us / 1000000))) AS days
+            FROM ({EVENTS_SQL}) e
+            GROUP BY did
+        ) t
+    """)
+    return np.array([total / max(days, 1) for total, days in rows])
+
+
+def fetch_events_per_hour(conn):
+    rows = query(conn, f"""
+        SELECT total, hours
+        FROM (
+            SELECT did,
+                   COUNT(*) AS total,
+                   COUNT(DISTINCT DATE_FORMAT(FROM_UNIXTIME(time_us / 1000000),
+                                              '%Y-%m-%d %H')) AS hours
+            FROM ({EVENTS_SQL}) e
+            GROUP BY did
+        ) t
+    """)
+    return np.array([total / max(hours, 1) for total, hours in rows])
+
+
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
     conn = pymysql.connect(**DB)
     print(f"Connected to {DB['host']}:{DB['port']}\n")
 
-    print("── Fetching events per user ──")
-    data = fetch_events_per_user(conn)
+    print("── Fetching data ──")
+    data_user = fetch_events_per_user(conn)
+    data_day  = fetch_events_per_day(conn)
+    data_hour = fetch_events_per_hour(conn)
     conn.close()
-    n = len(data)
-    print(f"  n = {n:,} users\n")
 
-    # ── Lognormal fit ─────────────────────────────────────────────────
-    print("── Lognormal fit ──")
+    datasets = [
+        (data_user, "Events per user"),
+        (data_day,  "Events per day"),
+        (data_hour, "Events per hour"),
+    ]
+
+    # ── Power-law vs lognormal for all three ──────────────────────────
+
+    print("\n── Power-law vs lognormal (LLR test) ──")
+    print(f"  {'Distribution':<20s} {'R':>14s} {'p':>10s} {'winner':>12s}")
+    print(f"  {'-'*58}")
+
+    results = []
+    for data, name in datasets:
+        data_pos = data[data > 0]
+        pl_fit = powerlaw.Fit(data_pos, discrete=True, xmin=1, verbose=False)
+        R, p = pl_fit.distribution_compare("power_law", "lognormal_positive")
+        ln_better = R < 0 and p < 0.05
+        pl_better = R > 0 and p < 0.05
+        winner = "lognormal" if ln_better else ("powerlaw" if pl_better else "none")
+        results.append((name, R, p, winner))
+        print(f"  {name:<20s} {R:>14,.1f} {p:>10.4f} {winner:>12s}")
+
+    # ── TSV output ────────────────────────────────────────────────────
+
+    tsv_path = OUT / "fitting_comparison.tsv"
+    with open(tsv_path, "w") as f:
+        f.write("distribution\tLLR_R\tp_value\twinner\n")
+        for name, R, p, winner in results:
+            f.write(f"{name}\t{R:,.1f}\t{p:.4f}\t{winner}\n")
+    print(f"\n  → saved {tsv_path}")
+
+    # ── Plot: lognormal PDF for events per user ───────────────────────
+
+    data = data_user[data_user > 0]
     shape, loc, scale = stats.lognorm.fit(data, floc=0)
     mu = np.log(scale)
     sigma = shape
-
-    print(f"  μ      = {mu:.4f}")
-    print(f"  σ      = {sigma:.4f}")
-    print(f"  mode   = {np.exp(mu - sigma**2):.1f}")
-    print(f"  median = {np.exp(mu):.1f}")
-    print(f"  mean   = {np.exp(mu + sigma**2 / 2):.1f}")
-
-    # ── Compare with power-law ────────────────────────────────────────
-    print("\n── Distribution comparison ──")
-    pl_fit = powerlaw.Fit(data, discrete=True, xmin=None, verbose=False)
-    R, p = pl_fit.distribution_compare("power_law", "lognormal_positive")
-    ln_better = R < 0 and p < 0.05
-    print(f"  power_law vs lognormal:  R = {R:,.1f}, p = {p:.4f}  →  "
-          f"{'lognormal significantly better' if ln_better else 'no significant difference'}")
-
-    # ── Plot: histogram + lognormal PDF ───────────────────────────────
 
     palette = sns.color_palette("colorblind")
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -142,9 +189,8 @@ def main():
     ax.legend(fontsize=9)
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.3f}"))
 
-    # Stats box
     text = (
-        f"n = {n:,}\n"
+        f"n = {len(data):,}\n"
         f"μ = {mu:.2f}\n"
         f"σ = {sigma:.2f}\n"
         f"median = {np.exp(mu):.1f}"
@@ -157,21 +203,7 @@ def main():
     path = OUT / "event_per_user_fitting.png"
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"\n  → saved {path}")
-
-    # ── Parameter TSV ─────────────────────────────────────────────────
-    tsv_path = OUT / "fitting_parameters.tsv"
-    with open(tsv_path, "w") as f:
-        f.write("distribution\tparameter\tvalue\n")
-        f.write(f"lognormal\tmu\t{mu:.4f}\n")
-        f.write(f"lognormal\tsigma\t{sigma:.4f}\n")
-        f.write(f"lognormal\tmode\t{np.exp(mu - sigma**2):.1f}\n")
-        f.write(f"lognormal\tmedian\t{np.exp(mu):.1f}\n")
-        f.write(f"lognormal\tmean\t{np.exp(mu + sigma**2 / 2):.1f}\n")
-        f.write(f"comparison\tLLR_lognormal_vs_powerlaw\t{-R:,.1f}\n")
-        f.write(f"comparison\tp_value\t{p:.4f}\n")
-        f.write(f"comparison\twinner\t{'lognormal' if ln_better else 'none'}\n")
-    print(f"  → saved {tsv_path}")
+    print(f"  → saved {path}")
 
     print("\nDone.")
 
