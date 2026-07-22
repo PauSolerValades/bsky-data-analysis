@@ -10,7 +10,7 @@ Whenever you generate, modify, or suggest code for data visualizations in either
 1. **Style:** All plots must use a clean, white background with subtle grid lines.
 2. **Font Size:** Base font size should be 11pt to match the thesis text.
 3. **Colors:** Use colorblind-friendly palettes by default unless instructed otherwise.
-
+4. **NEVER CREATE MULTIPLE PLOTS IN THE SAME FILE UNLESS EXPLICITED OTHERWISE**: assume one plot, one png.
 ---
 
 # Python Strict Implementation (Matplotlib / Seaborn)
