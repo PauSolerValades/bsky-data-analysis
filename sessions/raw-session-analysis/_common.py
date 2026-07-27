@@ -20,14 +20,15 @@ from scipy.stats import gaussian_kde
 
 
 class Source(Enum):
-    CORE_TUKEY    = "core_tukey"
-    ALL_TUKEY     = "all_tukey"
-    ALL_HDBSCAN   = "all_hdbscan"
-    ALL_HDBSCAN_E30  = "all_hdbscan_e30"
-    ALL_HDBSCAN_E120 = "all_hdbscan_e120"
-    ALL_HDBSCAN_E300 = "all_hdbscan_e300"
-    ALL_HDBSCAN_E120_MS5  = "all_hdbscan_e120_ms5"
-    ALL_HDBSCAN_E120_MS10 = "all_hdbscan_e120_ms10"
+    TUKEY_K12  = "tukey_k1_2"
+    TUKEY_K15  = "tukey_k1_5"
+    TUKEY_K17  = "tukey_k1_7"
+    HDBSCAN_E30   = "hdbscan_e30"
+    HDBSCAN_E60   = "hdbscan_e60"
+    HDBSCAN_E120  = "hdbscan_e120"
+    HDBSCAN_E300  = "hdbscan_e300"
+    HDBSCAN_E120_MS5  = "hdbscan_e120_ms5"
+    HDBSCAN_E120_MS10 = "hdbscan_e120_ms10"
 
     @property
     def table(self) -> str:
@@ -43,25 +44,27 @@ class Source(Enum):
 
 
 _SOURCE_COLORS = {
-    Source.CORE_TUKEY:    "#4A90D9",
-    Source.ALL_TUKEY:     "#E6842A",
-    Source.ALL_HDBSCAN:   "#2ECC71",
-    Source.ALL_HDBSCAN_E30:  "#27AE60",
-    Source.ALL_HDBSCAN_E120: "#1ABC9C",
-    Source.ALL_HDBSCAN_E300: "#16A085",
-    Source.ALL_HDBSCAN_E120_MS5:  "#8E44AD",
-    Source.ALL_HDBSCAN_E120_MS10: "#C0392B",
+    Source.TUKEY_K12:   "#85C1E9",
+    Source.TUKEY_K15:   "#4A90D9",
+    Source.TUKEY_K17:   "#2E86C1",
+    Source.HDBSCAN_E30:     "#27AE60",
+    Source.HDBSCAN_E60:     "#2ECC71",
+    Source.HDBSCAN_E120:    "#1ABC9C",
+    Source.HDBSCAN_E300:    "#16A085",
+    Source.HDBSCAN_E120_MS5:  "#8E44AD",
+    Source.HDBSCAN_E120_MS10: "#C0392B",
 }
 
 _SOURCE_LABELS = {
-    Source.CORE_TUKEY:    "Core Tukey",
-    Source.ALL_TUKEY:     "All Tukey",
-    Source.ALL_HDBSCAN:   "All HDBSCAN (ε=60)",
-    Source.ALL_HDBSCAN_E30:  "All HDBSCAN (ε=30)",
-    Source.ALL_HDBSCAN_E120: "All HDBSCAN (ε=120)",
-    Source.ALL_HDBSCAN_E300: "All HDBSCAN (ε=300)",
-    Source.ALL_HDBSCAN_E120_MS5:  "All HDBSCAN (ε=120, ms=5)",
-    Source.ALL_HDBSCAN_E120_MS10: "All HDBSCAN (ε=120, ms=10)",
+    Source.TUKEY_K12:   "Tukey (k=1.2)",
+    Source.TUKEY_K15:   "Tukey (k=1.5)",
+    Source.TUKEY_K17:   "Tukey (k=1.7)",
+    Source.HDBSCAN_E30:     "HDBSCAN (ε=30, ms=1)",
+    Source.HDBSCAN_E60:     "HDBSCAN (ε=60, ms=1)",
+    Source.HDBSCAN_E120:    "HDBSCAN (ε=120, ms=1)",
+    Source.HDBSCAN_E300:    "HDBSCAN (ε=300, ms=1)",
+    Source.HDBSCAN_E120_MS5:  "HDBSCAN (ε=120, ms=5)",
+    Source.HDBSCAN_E120_MS10: "HDBSCAN (ε=120, ms=10)",
 }
 
 N_BINS = 80

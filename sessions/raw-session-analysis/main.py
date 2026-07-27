@@ -23,6 +23,7 @@ import session_duration as s2
 import session_gaps as s3
 import session_composition as s4
 import circadian as s5
+import circadian_per_language as s6
 
 _SECTIONS = {
     "sessions_per_user": 1,
@@ -30,8 +31,9 @@ _SECTIONS = {
     "session_gaps": 3,
     "session_composition": 4,
     "circadian": 5,
+    "circadian_per_language": 6,
     # numeric aliases
-    "1": 1, "2": 2, "3": 3, "4": 4, "5": 5,
+    "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6,
 }
 
 
@@ -130,6 +132,11 @@ def main():
         if _should_run(5, skip, only):
             _banner(5)
             s5.run(source)
+            sections_run += 1
+
+        if _should_run(6, skip, only):
+            _banner(6)
+            s6.run(source)
             sections_run += 1
 
     elapsed = time_mod.time() - total_t0

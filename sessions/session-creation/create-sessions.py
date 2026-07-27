@@ -289,13 +289,18 @@ def main():
         "--hdbscan-min-samples", type=int, default=1,
         help="min_samples for HDBSCAN (default: 1).",
     )
+    parser.add_argument(
+        "--tukey-k", type=float, default=1.5,
+        help="IQR multiplier for Tukey (default: 1.5).",
+    )
     args = parser.parse_args()
 
     source = Source(args.table_source)
     hdbscan_eps = args.hdbscan_epsilon
     hdbscan_mcs = args.hdbscan_min_cluster_size
     hdbscan_ms = args.hdbscan_min_samples
-    q = _source_queries(source, hdbscan_epsilon=hdbscan_eps, hdbscan_mcs=hdbscan_mcs, hdbscan_ms=hdbscan_ms)
+    tukey_k = args.tukey_k
+    q = _source_queries(source, hdbscan_epsilon=hdbscan_eps, hdbscan_mcs=hdbscan_mcs, hdbscan_ms=hdbscan_ms, tukey_k=tukey_k)
 
     print(f"Connecting to DB ({DB_CONFIG['host']}:{DB_CONFIG['port']}) ...", file=sys.stderr)
     conn = pymysql.connect(**DB_CONFIG)
