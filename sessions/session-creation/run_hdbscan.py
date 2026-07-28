@@ -16,7 +16,7 @@ import sys
 import numpy as np
 import pymysql
 
-from _core import DB_CONFIG, load_dids, run_batch_loop
+from _core import get_connection, load_dids, run_batch_loop
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ def main():
         target += f"_mcs{mcs}"
 
     print(f"HDBSCAN ε={eps} ms={ms} mcs={mcs} → {target}", file=sys.stderr)
-    conn = pymysql.connect(**DB_CONFIG)
+    conn = get_connection()
 
     try:
         if args.did_from_file:

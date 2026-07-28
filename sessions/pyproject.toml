@@ -12,4 +12,9 @@ dependencies = [
     "scipy",
     "powerlaw",
     "hdbscan",
+    "duckdb>=1.5.5",
+    "running-locally",
 ]
+
+[tool.uv.sources]
+running-locally = { path = "../running-locally" }

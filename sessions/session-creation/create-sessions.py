@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 import pymysql
 from dotenv import load_dotenv
+from running_locally.local_db import Where, get_connection as _local_connect
 
 # ---------------------------------------------------------------------------
 # Config
@@ -302,8 +303,13 @@ def main():
     tukey_k = args.tukey_k
     q = _source_queries(source, hdbscan_epsilon=hdbscan_eps, hdbscan_mcs=hdbscan_mcs, hdbscan_ms=hdbscan_ms, tukey_k=tukey_k)
 
-    print(f"Connecting to DB ({DB_CONFIG['host']}:{DB_CONFIG['port']}) ...", file=sys.stderr)
-    conn = pymysql.connect(**DB_CONFIG)
+    where = Where.from_env()
+    if where == Where.LOCAL:
+        conn = _local_connect(where, repo_root=str(ENV_PATH.parent))
+        print("Using local DuckDB backend.", file=sys.stderr)
+    else:
+        print(f"Connecting to DB ({DB_CONFIG['host']}:{DB_CONFIG['port']}) ...", file=sys.stderr)
+        conn = pymysql.connect(**DB_CONFIG)
 
     try:
         # ── 1. Load DIDs ─────────────────────────────────────────────

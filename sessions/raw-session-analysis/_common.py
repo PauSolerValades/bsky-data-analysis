@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pymysql
 from dotenv import load_dotenv
+from running_locally.local_db import Where, get_connection as _local_connect
 from scipy.stats import gaussian_kde
 
 # ---------------------------------------------------------------------------
@@ -114,7 +115,10 @@ plt.style.use("ggplot")
 # ---------------------------------------------------------------------------
 
 
-def get_connection() -> pymysql.Connection:
+def get_connection():
+    where = Where.from_env()
+    if where == Where.LOCAL:
+        return _local_connect(where, repo_root=str(REPO))
     return pymysql.connect(**DB_CONFIG)
 
 

@@ -17,7 +17,7 @@ import sys
 import numpy as np
 import pymysql
 
-from _core import DB_CONFIG, load_dids, run_batch_loop
+from _core import get_connection, load_dids, run_batch_loop
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ def main():
     target = f"pau_db.sessions_raw_tukey_k{k_str}"
 
     print(f"Tukey k={k} → {target}", file=sys.stderr)
-    conn = pymysql.connect(**DB_CONFIG)
+    conn = get_connection()
 
     try:
         if args.did_from_file:

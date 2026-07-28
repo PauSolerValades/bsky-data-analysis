@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pymysql
 from dotenv import load_dotenv
+from running_locally.local_db import Where, get_connection as _local_connect
 
 # ---------------------------------------------------------------------------
 # Config
@@ -49,6 +50,13 @@ EVENTS_SQL = """
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
+
+def get_connection():
+    """Return a DB connection (DuckDB if WHERE=local, otherwise pymysql)."""
+    where = Where.from_env()
+    if where == Where.LOCAL:
+        return _local_connect(where, repo_root=str(ENV_PATH.parent))
+    return pymysql.connect(**DB_CONFIG)
 
 def _execute(conn, query, params=None):
     with conn.cursor() as cur:
