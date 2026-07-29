@@ -1,20 +1,28 @@
 """DuckDB backend that mimics pymysql's Connection/Cursor API.
 
 When WHERE=local in .env, this module provides a drop-in replacement
-for pymysql. Import it in your _common.py / _core.py — caller code
-doesn't change.
+for pymysql. SQL is written in StarRocks dialect (canonical) and
+transpiled to DuckDB via sqlglot when running locally. On server,
+SQL passes through unchanged.
 
-Usage in your shared modules:
+Schema names match the StarRocks databases (bsky, pau_db) so no
+name mapping is needed — ``bsky.records`` works in both environments.
+
+Usage:
     from running_locally.local_db import Where, get_connection
     where = Where.from_env()
     conn = get_connection(where)
 """
 
+import logging
 import os
-import re
 from enum import Enum
 
 import duckdb
+import sqlglot
+
+# Suppress sqlglot's "Unsupported property" warnings for StarRocks DDL
+logging.getLogger("sqlglot").setLevel(logging.ERROR)
 
 
 class Where(Enum):
@@ -27,7 +35,9 @@ class Where(Enum):
         return cls(val)
 
 
-# ── Path to Parquet sample data (relative to your project root) ──────────
+# ── Schema ↔ parquet layout ──────────────────────────────────────────────
+# Each subdirectory of DATA_DIR is a schema, each .parquet file a table.
+# e.g. data/tables/bsky/records.parquet → bsky.records (view)
 
 _DATA_DIR = "data/tables"
 
@@ -87,13 +97,11 @@ class _Connection:
         self._conn.close()
 
     def query(self, sql: str):
-        """Execute and return all rows."""
         with self.cursor() as cur:
             cur.execute(sql)
             return cur.fetchall()
 
     def execute(self, sql: str, label: str = ""):
-        """Execute a statement (INSERT, CREATE, DROP, etc)."""
         if label:
             print(f"  {label}...", end=" ", flush=True)
         with self.cursor() as cur:
@@ -123,41 +131,57 @@ def get_connection(where: Where, repo_root: str = "."):
         )
 
 
-# ── DuckDB initialisation (register Parquet files as tables) ──────────────
+# ── DuckDB initialisation ─────────────────────────────────────────────────
 
 def _init_duckdb(repo_root: str) -> duckdb.DuckDBPyConnection:
     db = duckdb.connect(f"{repo_root}/data/local.duckdb")
     data = f"{repo_root}/{_DATA_DIR}"
 
-    db.execute(f"""
-        CREATE OR REPLACE VIEW bsky_records AS
-        SELECT * FROM read_parquet('{data}/records.parquet')
-    """)
-    db.execute(f"""
-        CREATE OR REPLACE VIEW bsky_posts AS
-        SELECT * FROM read_parquet('{data}/posts.parquet')
-    """)
+    # Create schemas matching StarRocks databases
+    db.execute("CREATE SCHEMA IF NOT EXISTS bsky")
+    db.execute("CREATE SCHEMA IF NOT EXISTS pau_db")
+
+    # Register parquet files as views inside the bsky schema.
+    # Table name = basename of the parquet file (strips .parquet).
+    for schema_name, table_name in _discover_tables(data):
+        path = f"{data}/{schema_name}/{table_name}.parquet"
+        db.execute(f"""
+            CREATE OR REPLACE VIEW {schema_name}.{table_name} AS
+            SELECT * FROM read_parquet('{path}')
+        """)
 
     return db
+
+
+def _discover_tables(data_dir: str) -> list[tuple[str, str]]:
+    """Yield (schema, table_name) for each .parquet file under data_dir."""
+    import glob
+    tables = []
+    for path in sorted(glob.glob(f"{data_dir}/*/*.parquet")):
+        parts = path[len(data_dir) + 1:].split("/")  # e.g. "bsky/records.parquet"
+        schema = parts[0]
+        table = parts[1].removesuffix(".parquet")
+        tables.append((schema, table))
+    return tables
 
 
 # ── SQL adaptation ────────────────────────────────────────────────────────
 
 def _adapt_sql(sql: str) -> str:
-    """Translate StarRocks SQL to DuckDB-compatible SQL."""
-    sql = sql.replace("bsky.records", "bsky_records")
-    sql = sql.replace("bsky.posts", "bsky_posts")
-    sql = sql.replace("pau_db.", "")      # local: no schema prefix
-    sql = sql.replace("FROM_UNIXTIME(", "TO_TIMESTAMP(")
-    sql = sql.replace("%s", "?")               # pymysql → duckdb placeholder
-    sql = sql.replace("`", "")                 # MySQL → DuckDB: strip backticks
-    # Strip StarRocks engine clauses (DuckDB doesn't need them)
-    sql = re.sub(r"\s*ENGINE\s*=\s*OLAP.*?(?=DISTRIBUTED|PROPERTIES|;|$)",
-                 "", sql, flags=re.IGNORECASE | re.DOTALL)
-    sql = re.sub(r"\s*DUPLICATE KEY\([^)]*\)", "", sql, flags=re.IGNORECASE)
-    sql = re.sub(r"\s*DISTRIBUTED BY HASH\([^)]*\)\s*BUCKETS\s*\d+", "",
-                 sql, flags=re.IGNORECASE)
-    sql = re.sub(r"\s*PROPERTIES\s*\([^)]*\)", "", sql, flags=re.IGNORECASE)
+    """Transpile StarRocks SQL → DuckDB SQL.
+
+    DuckDB schemas mirror StarRocks database names (bsky, pau_db), so
+    ``bsky.records`` works in both. The ``pau_db.`` prefix is stripped
+    because local table-creation scripts don't use it (tables land in the
+    default schema instead of the pau_db schema).
+    """
+    # %s → ? first: sqlglot parses ? as a parameter, chokes on %s (modulo)
+    sql = sql.replace("%s", "?")
+    sql = sqlglot.transpile(sql, read="starrocks", write="duckdb")[0]
+    # ponytail: pau_db schema exists but table creation doesn't use it;
+    # strip the prefix so queries resolve against default schema.
+    # Remove when table-creation scripts prefix with pau_db.
+    sql = sql.replace("pau_db.", "")
     return sql
 
 

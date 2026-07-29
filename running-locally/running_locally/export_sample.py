@@ -29,7 +29,7 @@ DB_CONFIG = {
     "charset": "utf8mb4",
 }
 
-OUT_DIR = REPO / "data" / "sample"
+OUT_DIR = REPO / "data" / "tables" / "bsky"
 BATCH_SIZE = 200_000
 
 
