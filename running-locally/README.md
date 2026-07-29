@@ -1,64 +1,14 @@
 # Running Locally
 
-We export a random sample of users from StarRocks and rebuild all derived
-tables with DuckDB locally — same pipeline, zero latency, near-identical SQL.
+Problem: to edit in the server sucks, and as I care about code quality I end up with just trash code that I do not know how it does, and that is just unacceptable. Rather than spend time arguing with the system admin, I decided to have a small translator (llm made) between the usual code for starrocks with pymysql and duckdb python library.
 
-## How it works
+`export_sample.py` samples a given % from the `records` and `posts` tables and exports them in parquet files.
 
-```
-┌─ artemis (server) ──────────────────────────────────────────┐
-│  export_sample.py  ──►  data/sample/records.parquet         │
-│                         data/sample/posts.parquet            │
-└──────────────────────────────────────────────────────────────┘
-         │ scp
-         ▼
-┌─ your machine (local) ──────────────────────────────────────┐
-│  WHERE=local  +  duckdb  ──►  all_events, sessions, plots   │
-└──────────────────────────────────────────────────────────────┘
-```
+Once this parquet files are in the local editing PC, every code should import in its UV project
 
-### 1. Export (run once on artemis)
+```toml
+   [tool.uv.sources]
+   running-locally = { path = "../running-locally", editable = true }
+ ```
 
-```bash
-cd firehose-analysis/running-locally
-uv run export_sample.py --pct 10
-```
-
-### 2. Copy to your local machine
-
-```bash
-scp artemis:firehose-analysis/data/sample/*.parquet data/sample/
-```
-
-### 3. Set WHERE in .env
-
-```env
-WHERE=local
-```
-
-### 4. How your code uses it
-
-The `local_db` module provides a `pymysql`-compatible DuckDB backend.
-Your `_common.py` / `_core.py` switches transparently:
-
-```python
-from running_locally.local_db import Where, get_connection as local_connect
-
-def get_connection():
-    where = Where.from_env()
-    if where == Where.LOCAL:
-        return local_connect(where, repo_root=str(REPO))
-    return pymysql.connect(**DB_CONFIG)
-```
-
-Everything else — `cursor()`, `execute()`, `fetchall()` — works the same.
-No other code changes needed.
-
-## Sampling strategy
-
-We sample ~10% of **rows** from each table using deterministic hash-based
-sampling (`murmur_hash3_32` on `did`). Same seed → same sample every time.
-
-At 10%:
-- `records.parquet`: ~21M rows, ~200 MB
-- `posts.parquet`:  ~2.8M rows, ~40 MB
+where `running_locally.py` choses, according to the value of the environment variable `WHERE`, which sql library to use. In general, traeats the starrocks as default, and modifies the use of the duckdb library to behvabe as starrocks.
