@@ -1,2 +1,0 @@
-source	n_users	n_sessions_total	n_solo	n_real	pct_solo	n_users_all_solo	pct_users_all_solo	median_real_per_user_having_any
-hdbscan_e60	109522	2595304	370097	2225207	14.3	21835	19.9	5.0

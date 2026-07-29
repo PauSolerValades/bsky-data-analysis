@@ -6,6 +6,18 @@ Whenever you generate, modify, or suggest code for data visualizations in either
 - **Dependency Management:** All Python scripts MUST be executed using `uv run`. 
 - **Dependencies:** Do not suggest random `pip install` commands. If a new package is needed, instruct the user to add it to the project root dependencies using `uv add <package_name>`.
 
+# Local vs Server Mode
+- **Check `.env` first.** If `WHERE=local`, the project runs against local DuckDB using parquet files.
+  The directory `data/tables/` acts as the database schema: each subdirectory is a "schema"
+  (e.g., `data/tables/bsky/` → `bsky.*` tables), and `.parquet` files inside are the tables
+  (e.g., `data/tables/bsky/records.parquet` → `bsky.records`).
+- **Never write new database connection code.** The `running-locally/` package (`local_db.py`) is the
+  single source of truth for DB connections — both local (DuckDB) and server (StarRocks). If you
+  need a new connection feature, enhance `local_db.py` there. Every script imports it the same way:
+  ```python
+  from running_locally.local_db import Where, get_connection as local_connect
+  ```
+
 # Global Plotting Rules
 1. **Style:** All plots must use a clean, white background with subtle grid lines.
 2. **Font Size:** Base font size should be 11pt to match the thesis text.

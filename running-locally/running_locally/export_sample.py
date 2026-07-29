@@ -79,15 +79,17 @@ def main():
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # connects to starrocks
     conn = pymysql.connect(**DB_CONFIG)
-    print(f"Connected to {DB_CONFIG['host']}:{DB_CONFIG['port']} — {args.pct}% hash sampling\n")
+    print(
+        f"Connected to {DB_CONFIG['host']}:{DB_CONFIG['port']} — {args.pct}% hash sampling\n"
+    )
 
     export_table(conn, "records", args.pct, args.seed, OUT_DIR / "records.parquet")
     print()
     export_table(conn, "posts", args.pct, args.seed, OUT_DIR / "posts.parquet")
 
     conn.close()
-    print(f"\nDone. Copy data/sample/*.parquet to your local machine.")
 
 
 if __name__ == "__main__":

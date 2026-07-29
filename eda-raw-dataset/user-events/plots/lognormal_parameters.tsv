@@ -1,0 +1,4 @@
+distribution	mu	sigma	median	mu_minus_2sigma	mu_minus_sigma	P10
+events_per_user	3.1300	1.6602	22.9	0.8	4.3	3.0
+events_per_day	1.9528	1.1241	7.0	0.7	2.3	2.0
+events_per_hour	1.2910	0.8238	3.6	0.7	1.6	1.5

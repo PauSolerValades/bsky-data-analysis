@@ -1,4 +1,4 @@
 distribution	LLR_R	p_value	winner
-Events per user	-397,571.2	0.0000	lognormal
-Events per day	-298,282.9	0.0000	lognormal
-Events per hour	-366,993.7	0.0000	lognormal
+events_per_user	-85,287.3	0.0000	lognormal
+events_per_day	-84,802.1	0.0000	lognormal
+events_per_hour	-82,263.3	0.0000	lognormal

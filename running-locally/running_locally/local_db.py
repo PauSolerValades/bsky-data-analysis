@@ -29,7 +29,7 @@ class Where(Enum):
 
 # ── Path to Parquet sample data (relative to your project root) ──────────
 
-_DATA_DIR = "data/sample"
+_DATA_DIR = "data/tables"
 
 
 # ── DuckDB cursor (mimics pymysql.cursors.Cursor) ─────────────────────────
@@ -86,6 +86,21 @@ class _Connection:
     def close(self):
         self._conn.close()
 
+    def query(self, sql: str):
+        """Execute and return all rows."""
+        with self.cursor() as cur:
+            cur.execute(sql)
+            return cur.fetchall()
+
+    def execute(self, sql: str, label: str = ""):
+        """Execute a statement (INSERT, CREATE, DROP, etc)."""
+        if label:
+            print(f"  {label}...", end=" ", flush=True)
+        with self.cursor() as cur:
+            cur.execute(sql)
+        if label:
+            print("done.")
+
 
 # ── Public factory ────────────────────────────────────────────────────────
 
@@ -111,7 +126,7 @@ def get_connection(where: Where, repo_root: str = "."):
 # ── DuckDB initialisation (register Parquet files as tables) ──────────────
 
 def _init_duckdb(repo_root: str) -> duckdb.DuckDBPyConnection:
-    db = duckdb.connect()
+    db = duckdb.connect(f"{repo_root}/data/local.duckdb")
     data = f"{repo_root}/{_DATA_DIR}"
 
     db.execute(f"""
@@ -133,10 +148,12 @@ def _adapt_sql(sql: str) -> str:
     sql = sql.replace("bsky.records", "bsky_records")
     sql = sql.replace("bsky.posts", "bsky_posts")
     sql = sql.replace("pau_db.", "")      # local: no schema prefix
-    sql = sql.replace("%s", "?")           # pymysql → duckdb placeholder
+    sql = sql.replace("FROM_UNIXTIME(", "TO_TIMESTAMP(")
+    sql = sql.replace("%s", "?")               # pymysql → duckdb placeholder
+    sql = sql.replace("`", "")                 # MySQL → DuckDB: strip backticks
     # Strip StarRocks engine clauses (DuckDB doesn't need them)
     sql = re.sub(r"\s*ENGINE\s*=\s*OLAP.*?(?=DISTRIBUTED|PROPERTIES|;|$)",
-                 "", sql, flags=re.IGNORECASE)
+                 "", sql, flags=re.IGNORECASE | re.DOTALL)
     sql = re.sub(r"\s*DUPLICATE KEY\([^)]*\)", "", sql, flags=re.IGNORECASE)
     sql = re.sub(r"\s*DISTRIBUTED BY HASH\([^)]*\)\s*BUCKETS\s*\d+", "",
                  sql, flags=re.IGNORECASE)

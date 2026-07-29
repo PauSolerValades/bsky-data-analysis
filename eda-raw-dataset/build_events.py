@@ -4,28 +4,24 @@ Merges bsky.records (minus fossils, minus feed.post) + bsky.posts
 into a single (did, time_us, event_type) table. Filters out users
 with <2 events per active day (tourists).
 
-Output: pau_db.all_events_v2
+Output: events table (local: data/local.duckdb, server: pau_db.events)
 """
 
 import os
+import sys
 from pathlib import Path
 
-import pymysql
 from dotenv import load_dotenv
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
+from running_locally.local_db import Where, get_connection as local_connect
 
 # ── Config ────────────────────────────────────────────────────────────────
 
-REPO = Path(__file__).resolve().parent.parent
 load_dotenv(REPO / ".env")
 
-DB = {
-    "host": os.environ["DATABASE_HOST"],
-    "port": int(os.environ["DATABASE_PORT"]),
-    "user": os.environ["DATABASE_USER"],
-    "password": os.environ["PAU_PASSWORD"],
-    "database": "pau_db",
-    "charset": "utf8mb4",
-}
+WHERE = Where.from_env()
 
 EXCLUDE_COLLECTIONS = (
     "'app.bsky.feed.post'",
@@ -40,31 +36,18 @@ EXCLUDE_SQL = " AND r.collection NOT IN (" + ", ".join(EXCLUDE_COLLECTIONS) + ")
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
-def query(conn, sql):
-    with conn.cursor() as cur:
-        cur.execute(sql)
-        return cur.fetchall()
-
-
-def execute(conn, sql, label):
-    print(f"  {label}...", end=" ", flush=True)
-    with conn.cursor() as cur:
-        cur.execute(sql)
-    print("done.")
-
-
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
-    conn = pymysql.connect(**DB)
-    print(f"Connected to {DB['host']}:{DB['port']}  (database: pau_db)\n")
+    conn = local_connect(WHERE, repo_root=str(REPO))
+    print(f"Connected ({WHERE.value})\n")
 
     # ── Drop & create table ──────────────────────────────────────────
 
     print("── Creating table ──")
-    execute(conn, "DROP TABLE IF EXISTS all_events_v2", "drop old table")
-    execute(conn, """
-        CREATE TABLE all_events_v2 (
+    conn.execute("DROP TABLE IF EXISTS events", "drop old table")
+    conn.execute("""
+        CREATE TABLE events (
             did         VARCHAR(128) NOT NULL,
             time_us     BIGINT       NOT NULL,
             event_type  VARCHAR(32)  NOT NULL
@@ -77,11 +60,11 @@ def main():
 
     # ── Populate ─────────────────────────────────────────────────────
 
-    print("\n── Populating all_events_v2 ──")
+    print("\n── Populating events ──")
     print("  (merging records + posts, filtering users with <2 events/day)")
 
-    execute(conn, f"""
-        INSERT INTO all_events_v2 (did, time_us, event_type)
+    conn.execute( f"""
+        INSERT INTO events (did, time_us, event_type)
 
         WITH user_rates AS (
             -- Pre-compute events/day for every user
@@ -130,20 +113,20 @@ def main():
     # ── Validation ───────────────────────────────────────────────────
 
     print("\n── Validation ──")
-    rows = query(conn, """
-        SELECT 'total rows' AS metric, COUNT(*) AS value FROM all_events_v2
+    rows = conn.query("""
+        SELECT 'total rows' AS metric, COUNT(*) AS value FROM events
         UNION ALL
-        SELECT 'distinct users', COUNT(DISTINCT did) FROM all_events_v2
+        SELECT 'distinct users', COUNT(DISTINCT did) FROM events
         UNION ALL
-        SELECT 'distinct event types', COUNT(DISTINCT event_type) FROM all_events_v2
+        SELECT 'distinct event types', COUNT(DISTINCT event_type) FROM events
     """)
     for metric, value in rows:
         print(f"  {metric}: {value:,}")
 
     # Event type breakdown
-    rows = query(conn, """
+    rows = conn.query("""
         SELECT event_type, COUNT(*) AS cnt
-        FROM all_events_v2
+        FROM events
         GROUP BY event_type
         ORDER BY cnt DESC
     """)
