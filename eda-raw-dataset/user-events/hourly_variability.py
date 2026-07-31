@@ -11,7 +11,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-import pymysql
 from dotenv import load_dotenv
 
 # ── Thesis styling ───────────────────────────────────────────────────────
@@ -28,43 +27,16 @@ plt.rcParams.update({
 # ── Config ────────────────────────────────────────────────────────────────
 
 REPO = Path(__file__).resolve().parent.parent.parent
+import sys
+sys.path.insert(0, str(REPO))
 load_dotenv(REPO / ".env")
+from running_locally.local_db import Where, get_connection as local_connect
 
-DB = {
-    "host": os.environ["DATABASE_HOST"],
-    "port": int(os.environ["DATABASE_PORT"]),
-    "user": os.environ["DATABASE_USER"],
-    "password": os.environ["PAU_PASSWORD"],
-    "database": "bsky",
-    "charset": "utf8mb4",
-}
+WHERE = Where.from_env()
+TBL = "pau_db." if WHERE == Where.SERVER else ""
 
 OUT = Path(__file__).resolve().parent / "plots"
 OUT.mkdir(exist_ok=True)
-
-EXCLUDE_COLLECTIONS = (
-    "'app.bsky.feed.post'",
-    "'app.bsky.graph.repost'",
-    "'app.bsky.graph.verification'",
-    "'app.bsky.lexicon.collection'",
-    "'app.bsky.graph.cancellation'",
-    "'app.bsky.draft.createDraft'",
-)
-EXCLUDE_SQL = " AND collection NOT IN (" + ", ".join(EXCLUDE_COLLECTIONS) + ")"
-
-EVENTS_SQL = f"""
-    SELECT did, time_us FROM bsky.records WHERE 1=1{EXCLUDE_SQL}
-    UNION ALL
-    SELECT did, time_us FROM bsky.posts
-"""
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────
-
-def query(conn, sql):
-    with conn.cursor() as cur:
-        cur.execute(sql)
-        return cur.fetchall()
 
 
 # ── Analysis ──────────────────────────────────────────────────────────────
@@ -75,12 +47,12 @@ def analyse(conn, bin_hours, label):
     print(f"  {label}-hour bins")
     print(f"{'='*60}")
 
-    rows = query(conn, f"""
+    rows = conn.query(f"""
         SELECT did, bin, COUNT(*) AS cnt
         FROM (
             SELECT did,
                    FLOOR(time_us / ({bin_hours} * 3600 * 1000000)) AS bin
-            FROM ({EVENTS_SQL}) e
+            FROM {TBL}events
         ) t
         GROUP BY did, bin
     """)
@@ -172,8 +144,8 @@ def analyse(conn, bin_hours, label):
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
-    conn = pymysql.connect(**DB)
-    print(f"Connected to {DB['host']}:{DB['port']}\n")
+    conn = local_connect(WHERE, repo_root=str(REPO))
+    print(f"Connected ({WHERE.value})\n")
 
     for hours, label in [(4, "4"), (8, "8")]:
         analyse(conn, hours, label)
@@ -185,11 +157,11 @@ def main():
     print(f"  {'bin size':>10s}  {'users':>10s}  {'%':>8s}")
     print(f"  {'-'*30}")
     for hours, label in [(4, "4"), (8, "8")]:
-        rows = query(conn, f"""
+        rows = conn.query(f"""
             SELECT did, bin, COUNT(*) AS cnt
             FROM (
                 SELECT did, FLOOR(time_us / ({hours} * 3600 * 1000000)) AS bin
-                FROM ({EVENTS_SQL}) e
+                FROM {TBL}events
             ) t GROUP BY did, bin
         """)
         uc = defaultdict(list)

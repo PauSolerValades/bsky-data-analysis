@@ -1,11 +1,8 @@
 """Check for microsessions: singletons and very short sessions.
 
-Relevant postulates:
-  - Sessions must be fine-grained enough to capture notification checks,
-    bathroom breaks, and other micro-doses of activity.
-
 Usage:
     uv run sessions/analysis/duration_micro.py --table-name sessions_tukey_k1_5
+    uv run sessions/analysis/duration_micro.py --table-name sessions_tukey_k1_5 --plot-dir ../hyperparameter/plots/tukey/k1_5
 """
 
 import argparse
@@ -23,6 +20,9 @@ sys.path.insert(0, str(REPO))
 load_dotenv(REPO / ".env")
 from running_locally.local_db import Where, get_connection as local_connect
 
+WHERE = Where.from_env()
+TBL_PREFIX = "pau_db." if WHERE == Where.SERVER else ""
+
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
@@ -33,8 +33,7 @@ plt.rcParams.update({
     "ytick.labelsize": 10,
 })
 
-OUT = Path(__file__).resolve().parent / "results"
-OUT.mkdir(exist_ok=True)
+DEFAULT_OUT = Path(__file__).resolve().parent / "results"
 
 
 # ── Main ──────────────────────────────────────────────────────────────────
@@ -42,22 +41,24 @@ OUT.mkdir(exist_ok=True)
 def main():
     parser = argparse.ArgumentParser(description="Microsession check.")
     parser.add_argument("--table-name", type=str, required=True)
+    parser.add_argument("--plot-dir", type=str, default=str(DEFAULT_OUT),
+                        help="Output directory for the plot")
     args = parser.parse_args()
+    plot_dir = Path(args.plot_dir)
+    plot_dir.mkdir(parents=True, exist_ok=True)
 
     conn = local_connect(Where.from_env(), repo_root=str(REPO))
 
-    # Duration and singleton flag
     rows = conn.query(f"""
         SELECT duration_s, is_singleton
-        FROM {args.table_name}
+        FROM {TBL_PREFIX}{args.table_name}
     """)
     durations = np.array([r[0] for r in rows], dtype=np.float64)
     singletons = np.array([r[1] for r in rows], dtype=np.int64)
 
-    # Per-user singleton ratio
     user_rows = conn.query(f"""
         SELECT did, AVG(is_singleton) AS singleton_ratio, COUNT(*) AS n
-        FROM {args.table_name}
+        FROM {TBL_PREFIX}{args.table_name}
         GROUP BY did
     """)
     singleton_ratios = np.array([r[1] for r in user_rows])
@@ -85,9 +86,8 @@ def main():
     fig, ax = plt.subplots(figsize=(8, 5))
     palette = sns.color_palette("colorblind")
 
-    # Zoom on 0-60s
     micro = durations[(durations >= 0) & (durations <= 60)]
-    bins = np.linspace(0, 60, 61)  # 1s bins
+    bins = np.linspace(0, 60, 61)
     ax.hist(micro, bins=bins, color=palette[0], alpha=0.7,
             edgecolor="white", linewidth=0.2)
     ax.set_xlabel("Session duration (seconds)")
@@ -108,7 +108,7 @@ def main():
                                   facecolor="white", alpha=0.85))
 
     fig.tight_layout()
-    path = OUT / f"duration_micro__{args.table_name}.png"
+    path = plot_dir / f"duration_micro__{args.table_name}.png"
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  → saved {path}")

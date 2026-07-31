@@ -23,10 +23,10 @@ def _tukey_cluster(timestamps_us: list[int], k: float = 1.5):
     Input: timestamps in microseconds. Converted to seconds internally.
     Returns: (start_us, end_us, is_singleton) in microseconds.
     """
-    if len(timestamps_us) < 5:
+    if len(timestamps_us) < 3:
         return None
     unique_s = sorted(set(t / 1_000_000 for t in timestamps_us))
-    if len(unique_s) < 5:
+    if len(unique_s) < 3:
         return None
 
     gaps = np.diff(np.array(unique_s, dtype=np.float64))
@@ -54,8 +54,6 @@ def main():
                         help="Output table name (e.g., sessions_tukey_k1_5)")
     parser.add_argument("--k", type=float, default=1.5, help="IQR multiplier")
     parser.add_argument("--batch-size", type=int, default=2000)
-    parser.add_argument("--workers", type=int, default=1,
-                        help="Number of parallel workers for clustering")
     parser.add_argument("--summary", action="store_true")
     args = parser.parse_args()
 
@@ -74,7 +72,6 @@ def main():
             cluster_fn=partial(_tukey_cluster, k=args.k),
             batch_size=args.batch_size,
             summary=args.summary,
-            workers=args.workers,
         )
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)

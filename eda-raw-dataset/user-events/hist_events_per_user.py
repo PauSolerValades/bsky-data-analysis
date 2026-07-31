@@ -14,6 +14,9 @@ sys.path.insert(0, str(REPO))
 load_dotenv(REPO / ".env")
 from running_locally.local_db import Where, get_connection as local_connect
 
+WHERE = Where.from_env()
+TBL = "pau_db." if WHERE == Where.SERVER else ""
+
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
@@ -30,9 +33,9 @@ OUT.mkdir(exist_ok=True)
 # ── Fetch ─────────────────────────────────────────────────────────────────
 
 conn = local_connect(Where.from_env(), repo_root=str(REPO))
-rows = conn.query("""
+rows = conn.query(f"""
     SELECT cnt, COUNT(*) AS n_users
-    FROM (SELECT did, COUNT(*) AS cnt FROM events GROUP BY did)
+    FROM (SELECT did, COUNT(*) AS cnt FROM {TBL}events GROUP BY did) t
     GROUP BY cnt ORDER BY cnt
 """)
 conn.close()

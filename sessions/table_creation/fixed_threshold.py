@@ -52,8 +52,6 @@ def main():
     parser.add_argument("--threshold", type=float, required=True,
                         help="Gap threshold in seconds")
     parser.add_argument("--batch-size", type=int, default=2000)
-    parser.add_argument("--workers", type=int, default=1,
-                        help="Number of parallel workers for clustering")
     parser.add_argument("--summary", action="store_true")
     args = parser.parse_args()
 
@@ -72,7 +70,6 @@ def main():
             cluster_fn=partial(_fixed_cluster, threshold_s=args.threshold),
             batch_size=args.batch_size,
             summary=args.summary,
-            workers=args.workers,
         )
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)

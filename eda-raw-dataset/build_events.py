@@ -36,6 +36,9 @@ EXCLUDE_SQL = " AND r.collection NOT IN (" + ", ".join(EXCLUDE_COLLECTIONS) + ")
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
+TBL = "pau_db." if WHERE == Where.SERVER else ""
+
+
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
@@ -45,9 +48,9 @@ def main():
     # ── Drop & create table ──────────────────────────────────────────
 
     print("── Creating table ──")
-    conn.execute("DROP TABLE IF EXISTS events", "drop old table")
-    conn.execute("""
-        CREATE TABLE events (
+    conn.execute(f"DROP TABLE IF EXISTS {TBL}events", "drop old table")
+    conn.execute(f"""
+        CREATE TABLE {TBL}events (
             did         VARCHAR(128) NOT NULL,
             time_us     BIGINT       NOT NULL,
             event_type  VARCHAR(32)  NOT NULL
@@ -64,7 +67,7 @@ def main():
     print("  (merging records + posts, filtering users with <2 events/day)")
 
     conn.execute( f"""
-        INSERT INTO events (did, time_us, event_type)
+        INSERT INTO {TBL}events (did, time_us, event_type)
 
         WITH user_rates AS (
             -- Pre-compute events/day for every user
@@ -114,11 +117,11 @@ def main():
 
     print("\n── Validation ──")
     rows = conn.query("""
-        SELECT 'total rows' AS metric, COUNT(*) AS value FROM events
+        SELECT 'total rows' AS metric, COUNT(*) AS value FROM {TBL}events
         UNION ALL
-        SELECT 'distinct users', COUNT(DISTINCT did) FROM events
+        SELECT 'distinct users', COUNT(DISTINCT did) FROM {TBL}events
         UNION ALL
-        SELECT 'distinct event types', COUNT(DISTINCT event_type) FROM events
+        SELECT 'distinct event types', COUNT(DISTINCT event_type) FROM {TBL}events
     """)
     for metric, value in rows:
         print(f"  {metric}: {value:,}")
@@ -126,7 +129,7 @@ def main():
     # Event type breakdown
     rows = conn.query("""
         SELECT event_type, COUNT(*) AS cnt
-        FROM events
+        FROM {TBL}events
         GROUP BY event_type
         ORDER BY cnt DESC
     """)

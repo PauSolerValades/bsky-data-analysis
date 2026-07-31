@@ -1,11 +1,8 @@
 """Check for macrosessions: heavy-tail of very long sessions.
 
-Relevant postulates:
-  - Very long sessions (hours) should be rare, not the majority.
-    A handful of 8–10h sessions can exist but must be outliers.
-
 Usage:
     uv run sessions/analysis/duration_macro.py --table-name sessions_tukey_k1_5
+    uv run sessions/analysis/duration_macro.py --table-name sessions_tukey_k1_5 --plot-dir ../hyperparameter/plots/tukey/k1_5
 """
 
 import argparse
@@ -22,6 +19,9 @@ sys.path.insert(0, str(REPO))
 load_dotenv(REPO / ".env")
 from running_locally.local_db import Where, get_connection as local_connect
 
+WHERE = Where.from_env()
+TBL_PREFIX = "pau_db." if WHERE == Where.SERVER else ""
+
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
@@ -32,8 +32,7 @@ plt.rcParams.update({
     "ytick.labelsize": 10,
 })
 
-OUT = Path(__file__).resolve().parent / "results"
-OUT.mkdir(exist_ok=True)
+DEFAULT_OUT = Path(__file__).resolve().parent / "results"
 
 HOURS = [1, 2, 4, 8]
 
@@ -43,10 +42,14 @@ HOURS = [1, 2, 4, 8]
 def main():
     parser = argparse.ArgumentParser(description="Macrosession check.")
     parser.add_argument("--table-name", type=str, required=True)
+    parser.add_argument("--plot-dir", type=str, default=str(DEFAULT_OUT),
+                        help="Output directory for the plot")
     args = parser.parse_args()
+    plot_dir = Path(args.plot_dir)
+    plot_dir.mkdir(parents=True, exist_ok=True)
 
     conn = local_connect(Where.from_env(), repo_root=str(REPO))
-    rows = conn.query(f"SELECT duration_s FROM {args.table_name}")
+    rows = conn.query(f"SELECT duration_s FROM {TBL_PREFIX}{args.table_name}")
     conn.close()
 
     durations = np.array([r[0] for r in rows], dtype=np.float64)
@@ -89,7 +92,7 @@ def main():
     ax.set_title(f"Macrosession check — {args.table_name}", fontsize=12, fontweight="bold")
 
     fig.tight_layout()
-    path = OUT / f"duration_macro__{args.table_name}.png"
+    path = plot_dir / f"duration_macro__{args.table_name}.png"
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  → saved {path}")

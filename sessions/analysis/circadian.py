@@ -1,11 +1,8 @@
 """Check circadian rhythm: hourly session-start density by language.
 
-Relevant postulates:
-  - Non-global languages (German, Japanese, Korean, etc.) should show
-    clear day/night patterns aligned to their geographic timezone.
-
 Usage:
     uv run sessions/analysis/circadian.py --table-name sessions_tukey_k1_5
+    uv run sessions/analysis/circadian.py --table-name sessions_tukey_k1_5 --plot-dir ../hyperparameter/plots/tukey/k1_5
 """
 
 import argparse
@@ -22,6 +19,9 @@ sys.path.insert(0, str(REPO))
 load_dotenv(REPO / ".env")
 from running_locally.local_db import Where, get_connection as local_connect
 
+WHERE = Where.from_env()
+TBL_PREFIX = "pau_db." if WHERE == Where.SERVER else ""
+
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
@@ -33,8 +33,7 @@ plt.rcParams.update({
     "legend.fontsize": 8,
 })
 
-OUT = Path(__file__).resolve().parent / "results"
-OUT.mkdir(exist_ok=True)
+DEFAULT_OUT = Path(__file__).resolve().parent / "results"
 
 # Languages with concentrated timezones → UTC offset
 LANGUAGES = ["de", "ja", "ko", "pt", "fr", "es"]
@@ -47,7 +46,11 @@ PALETTE = sns.color_palette("colorblind", n_colors=len(LANGUAGES))
 def main():
     parser = argparse.ArgumentParser(description="Circadian rhythm check.")
     parser.add_argument("--table-name", type=str, required=True)
+    parser.add_argument("--plot-dir", type=str, default=str(DEFAULT_OUT),
+                        help="Output directory for the plot")
     args = parser.parse_args()
+    plot_dir = Path(args.plot_dir)
+    plot_dir.mkdir(parents=True, exist_ok=True)
 
     conn = local_connect(Where.from_env(), repo_root=str(REPO))
 
@@ -56,7 +59,7 @@ def main():
     lang_rows = conn.query("""
         WITH user_langs AS (
             SELECT did, lang, COUNT(*) AS n
-            FROM bsky_posts
+            FROM bsky.posts
             WHERE lang IS NOT NULL AND lang != ''
             GROUP BY did, lang
         ),
@@ -72,7 +75,7 @@ def main():
 
     # Session starts with DID
     rows = conn.query(f"""
-        SELECT did, session_start FROM {args.table_name}
+        SELECT did, session_start FROM {TBL_PREFIX}{args.table_name}
     """)
     conn.close()
 
@@ -85,7 +88,6 @@ def main():
         if lang not in TZ_OFFSET:
             continue
         offset = TZ_OFFSET[lang]
-        # Convert UTC microseconds → local hour
         utc_hour = (session_start / 1_000_000 / 3600) % 24
         local_hour = int((utc_hour + offset) % 24)
         local_hours[lang][local_hour] += 1
@@ -107,7 +109,7 @@ def main():
         if n == 0:
             continue
         peak = np.argmax(local_hours[lang])
-        night_ratio = local_hours[lang][2:6].sum()  # 2am-6am local
+        night_ratio = local_hours[lang][2:6].sum()
         print(f"  {lang:<6s} {n:>10,}  {peak:>02d}:00 local            "
               f"{night_ratio:>11.3f}")
 
@@ -132,12 +134,11 @@ def main():
     ax.legend()
     ax.set_xlim(0, 23)
 
-    # Shade night (22-06)
     ax.axvspan(0, 6, color="gray", alpha=0.06)
     ax.axvspan(22, 24, color="gray", alpha=0.06)
 
     fig.tight_layout()
-    path = OUT / f"circadian__{args.table_name}.png"
+    path = plot_dir / f"circadian__{args.table_name}.png"
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  → saved {path}")

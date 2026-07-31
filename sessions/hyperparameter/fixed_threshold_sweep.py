@@ -4,11 +4,13 @@ Calls table_creation/fixed_threshold.py for each threshold.
 
 Usage:
     uv run sessions/hyperparameter/fixed_threshold_sweep.py
+    uv run sessions/hyperparameter/fixed_threshold_sweep.py --parallel 4
 """
 
-import os
+import argparse
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -22,27 +24,49 @@ THRESHOLDS = [
 ]
 
 
-def run(cmd: list[str]):
-    print(f"\n{'─' * 60}", file=sys.stderr)
-    print(f"  {' '.join(cmd)}", file=sys.stderr)
-    print(f"{'─' * 60}", file=sys.stderr)
-    result = subprocess.run(cmd)
+def run_one(threshold: int, table_name: str) -> tuple[str, bool]:
+    cmd = [
+        "uv", "run", str(SCRIPT),
+        "--table-name", table_name,
+        "--threshold", str(threshold),
+        "--summary",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"  FAILED (code {result.returncode})", file=sys.stderr)
+        print(f"\n  FAILED {table_name}: {result.stderr[-200:]}", file=sys.stderr)
+    return table_name, result.returncode == 0
 
 
 def main():
-    workers = os.cpu_count() or 1
-    print(f"  Using {workers} workers", file=sys.stderr)
+    parser = argparse.ArgumentParser(description="Fixed-threshold sweep.")
+    parser.add_argument("--parallel", type=int, default=1,
+                        help="Max concurrent subprocesses")
+    args = parser.parse_args()
 
-    for threshold, table_name in THRESHOLDS:
-        run([
-            "uv", "run", str(SCRIPT),
-            "--table-name", table_name,
-            "--threshold", str(threshold),
-            "--workers", str(workers),
-            "--summary",
-        ])
+    print(f"  {len(THRESHOLDS)} thresholds, parallel={args.parallel}", file=sys.stderr)
+
+    if args.parallel == 1:
+        failed = []
+        for i, (threshold, table_name) in enumerate(THRESHOLDS):
+            print(f"\n  [{i + 1}/{len(THRESHOLDS)}] {table_name}", file=sys.stderr)
+            name, ok = run_one(threshold, table_name)
+            if not ok:
+                failed.append(name)
+    else:
+        done = 0
+        failed = []
+        with ThreadPoolExecutor(max_workers=args.parallel) as pool:
+            futures = {pool.submit(run_one, t, n): n for t, n in THRESHOLDS}
+            for fut in as_completed(futures):
+                name, ok = fut.result()
+                done += 1
+                status = "" if ok else " [FAILED]"
+                print(f"  [{done}/{len(THRESHOLDS)}] {name}{status}", file=sys.stderr)
+                if not ok:
+                    failed.append(name)
+
+    if failed:
+        print(f"\n  {len(failed)} FAILED: {failed}", file=sys.stderr)
 
     print(f"\n{'=' * 60}", file=sys.stderr)
     print("  Fixed-threshold sweep complete.", file=sys.stderr)

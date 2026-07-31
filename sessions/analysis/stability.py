@@ -22,6 +22,9 @@ sys.path.insert(0, str(REPO))
 load_dotenv(REPO / ".env")
 from running_locally.local_db import Where, get_connection as local_connect
 
+WHERE = Where.from_env()
+TBL_PREFIX = "pau_db." if WHERE == Where.SERVER else ""
+
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
@@ -51,7 +54,7 @@ def main():
         conn.execute(f"""
             CREATE TEMP TABLE IF NOT EXISTS counts_{label} AS
             SELECT did, COUNT(*) AS n_sessions
-            FROM {tbl}
+            FROM {TBL_PREFIX}{tbl}
             GROUP BY did
         """)
 

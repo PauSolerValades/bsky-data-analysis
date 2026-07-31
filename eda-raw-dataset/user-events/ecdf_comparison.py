@@ -21,6 +21,9 @@ sys.path.insert(0, str(REPO))
 load_dotenv(REPO / ".env")
 from running_locally.local_db import Where, get_connection as local_connect
 
+WHERE = Where.from_env()
+TBL = "pau_db." if WHERE == Where.SERVER else ""
+
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
@@ -40,34 +43,34 @@ OUT.mkdir(exist_ok=True)
 conn = local_connect(Where.from_env(), repo_root=str(REPO))
 
 # Events per user
-rows = conn.query("""
+rows = conn.query(f"""
     SELECT cnt, COUNT(*) AS n_users
-    FROM (SELECT did, COUNT(*) AS cnt FROM events GROUP BY did)
+    FROM (SELECT did, COUNT(*) AS cnt FROM {TBL}events GROUP BY did) t
     GROUP BY cnt ORDER BY cnt
 """)
 data_user = np.array([float(v) for v, n in rows for _ in range(int(n))])
 data_user = data_user[data_user > 0]
 
 # Events per day
-rows = conn.query("""
+rows = conn.query(f"""
     SELECT total, days
     FROM (
         SELECT did, COUNT(*) AS total,
-               COUNT(DISTINCT DATE(TO_TIMESTAMP(time_us / 1000000))) AS days
-        FROM events GROUP BY did
-    )
+               COUNT(DISTINCT DATE(FROM_UNIXTIME(time_us / 1000000))) AS days
+        FROM {TBL}events GROUP BY did
+    ) t
 """)
 data_day = np.array([float(t) / max(int(d), 1) for t, d in rows])
 data_day = data_day[data_day > 0]
 
 # Events per hour
-rows = conn.query("""
+rows = conn.query(f"""
     SELECT total, hours
     FROM (
         SELECT did, COUNT(*) AS total,
-               COUNT(DISTINCT DATE_TRUNC('hour', TO_TIMESTAMP(time_us / 1000000))) AS hours
-        FROM events GROUP BY did
-    )
+               COUNT(DISTINCT DATE_TRUNC('hour', FROM_UNIXTIME(time_us / 1000000))) AS hours
+        FROM {TBL}events GROUP BY did
+    ) t
 """)
 data_hour = np.array([float(t) / max(int(h), 1) for t, h in rows])
 data_hour = data_hour[data_hour > 0]

@@ -81,17 +81,22 @@ class _Cursor:
         pass
 
 
-# ── DuckDB connection (mimics pymysql.Connection) ─────────────────────────
+# ── Unified connection wrapper (works with DuckDB and pymysql) ────────────
 
 class _Connection:
-    def __init__(self, db: duckdb.DuckDBPyConnection):
+    def __init__(self, db, backend: str = "duckdb"):
         self._conn = db
+        self._backend = backend
 
     def cursor(self):
-        return _Cursor(self._conn)
+        if self._backend == "duckdb":
+            return _Cursor(self._conn)
+        else:
+            return self._conn.cursor()
 
     def commit(self):
-        pass
+        if self._backend == "mysql":
+            self._conn.commit()
 
     def close(self):
         self._conn.close()
@@ -106,6 +111,8 @@ class _Connection:
             print(f"  {label}...", end=" ", flush=True)
         with self.cursor() as cur:
             cur.execute(sql)
+        if self._backend == "mysql":
+            self._conn.commit()
         if label:
             print("done.")
 
@@ -121,7 +128,7 @@ def get_connection(where: Where, repo_root: str = "."):
         import pymysql
         from dotenv import load_dotenv
         load_dotenv(f"{repo_root}/.env")
-        return pymysql.connect(
+        db = pymysql.connect(
             host=os.environ["DATABASE_HOST"],
             port=int(os.environ["DATABASE_PORT"]),
             user=os.environ["DATABASE_USER"],
@@ -129,6 +136,7 @@ def get_connection(where: Where, repo_root: str = "."):
             database="bsky",
             charset="utf8mb4",
         )
+        return _Connection(db, backend="mysql")
 
 
 # ── DuckDB initialisation ─────────────────────────────────────────────────

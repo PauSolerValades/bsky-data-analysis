@@ -14,6 +14,9 @@ sys.path.insert(0, str(REPO))
 load_dotenv(REPO / ".env")
 from running_locally.local_db import Where, get_connection as local_connect
 
+WHERE = Where.from_env()
+TBL = "pau_db." if WHERE == Where.SERVER else ""
+
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
@@ -30,13 +33,13 @@ OUT.mkdir(exist_ok=True)
 # ── Fetch ─────────────────────────────────────────────────────────────────
 
 conn = local_connect(Where.from_env(), repo_root=str(REPO))
-rows = conn.query("""
+rows = conn.query(f"""
     SELECT total, days
     FROM (
         SELECT did, COUNT(*) AS total,
-               COUNT(DISTINCT DATE(TO_TIMESTAMP(time_us / 1000000))) AS days
-        FROM events GROUP BY did
-    )
+               COUNT(DISTINCT DATE(FROM_UNIXTIME(time_us / 1000000))) AS days
+        FROM {TBL}events GROUP BY did
+    ) t
 """)
 conn.close()
 

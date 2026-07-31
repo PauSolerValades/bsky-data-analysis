@@ -4,7 +4,7 @@ Noise points become singletons (is_singleton=True), clusters become sessions.
 Output table: (did, session_start, session_end, duration_s, is_singleton).
 
 Usage:
-    uv run sessions/table_creation/hdbscan.py --table-name sessions_hdbscan_e60 --epsilon 60 --summary
+    uv run sessions/table_creation/hdbscan_cluster.py --table-name sessions_hdbscan_e60 --epsilon 60 --summary
 """
 
 import argparse
@@ -30,7 +30,7 @@ def _hdbscan_cluster(
     Returns: (start_us, end_us, is_singleton) in microseconds.
     Noise points → is_singleton=True.
     """
-    import hdbscan
+    import hdbscan as _hdbscan
 
     unique_s = sorted(set(t / 1_000_000 for t in timestamps_us))
     if len(unique_s) < 2:
@@ -39,7 +39,7 @@ def _hdbscan_cluster(
     t0 = unique_s[0]
     X = np.array([[t - t0] for t in unique_s], dtype=np.float64)
 
-    clusterer = hdbscan.HDBSCAN(
+    clusterer = _hdbscan.HDBSCAN(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
         cluster_selection_epsilon=epsilon,
@@ -84,8 +84,6 @@ def main():
     parser.add_argument("--min-samples", type=int, default=1)
     parser.add_argument("--min-cluster-size", type=int, default=2)
     parser.add_argument("--batch-size", type=int, default=2000)
-    parser.add_argument("--workers", type=int, default=1,
-                        help="Number of parallel workers for clustering")
     parser.add_argument("--summary", action="store_true")
     args = parser.parse_args()
 
@@ -110,7 +108,6 @@ def main():
             ),
             batch_size=args.batch_size,
             summary=args.summary,
-            workers=args.workers,
         )
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)

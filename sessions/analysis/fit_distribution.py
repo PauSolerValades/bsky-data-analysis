@@ -1,15 +1,8 @@
 """Fit session duration or inter-session gap distributions with distfit.
 
-distfit ranks candidate distributions by RSS; the best fit is plotted.
-Output: ranked TSV + histogram + best-fit PDF.
-
-Relevant postulates:
-  - Distributions should be univariate (not mixtures, not bimodal)
-    to serve as input for a DES simulation.
-
 Usage:
     uv run sessions/analysis/fit_distribution.py --table-name sessions_tukey_k1_5 --column duration_s
-    uv run sessions/analysis/fit_distribution.py --table-name sessions_tukey_k1_5 --column gap_s
+    uv run sessions/analysis/fit_distribution.py --table-name sessions_tukey_k1_5 --column gap_s --plot-dir ../hyperparameter/plots/tukey/k1_5
 """
 
 import argparse
@@ -27,6 +20,9 @@ sys.path.insert(0, str(REPO))
 load_dotenv(REPO / ".env")
 from running_locally.local_db import Where, get_connection as local_connect
 
+WHERE = Where.from_env()
+TBL_PREFIX = "pau_db." if WHERE == Where.SERVER else ""
+
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
@@ -38,8 +34,10 @@ plt.rcParams.update({
     "legend.fontsize": 9,
 })
 
-OUT = Path(__file__).resolve().parent / "results"
-OUT.mkdir(exist_ok=True)
+DEFAULT_OUT = Path(__file__).resolve().parent / "results"
+
+TIME_DISTS = ['expon', 'gamma', 'lognorm', 'weibull_min', 'fisk',
+              'pareto', 'lomax', 'genpareto']
 
 
 # ── Main ──────────────────────────────────────────────────────────────────
@@ -51,13 +49,20 @@ def main():
                         choices=["duration_s", "gap_s"])
     parser.add_argument("--sample", type=int, default=100_000,
                         help="Max rows to fit (distfit is CPU-heavy)")
+    parser.add_argument("--gof", type=str, default="RSS",
+                        choices=["RSS", "wasserstein", "ks", "energy", "goodness_of_fit"],
+                        help="Goodness-of-fit statistic")
+    parser.add_argument("--plot-dir", type=str, default=str(DEFAULT_OUT),
+                        help="Output directory for plot and tsv")
     args = parser.parse_args()
+    plot_dir = Path(args.plot_dir)
+    plot_dir.mkdir(parents=True, exist_ok=True)
 
     conn = local_connect(Where.from_env(), repo_root=str(REPO))
 
     if args.column == "duration_s":
         rows = conn.query(f"""
-            SELECT duration_s FROM {args.table_name}
+            SELECT duration_s FROM {TBL_PREFIX}{args.table_name}
             WHERE duration_s > 0
             LIMIT {args.sample}
         """)
@@ -66,11 +71,13 @@ def main():
         col_label = "duration"
     else:
         rows = conn.query(f"""
-            SELECT
-                (LEAD(session_start) OVER (PARTITION BY did ORDER BY session_start)
-                 - session_end) / 1000000.0 AS gap_s
-            FROM {args.table_name}
-            QUALIFY gap_s IS NOT NULL AND gap_s > 0
+            SELECT gap_s FROM (
+                SELECT
+                    (LEAD(session_start) OVER (PARTITION BY did ORDER BY session_start)
+                     - session_end) / 1000000.0 AS gap_s
+                FROM {TBL_PREFIX}{args.table_name}
+            ) t
+            WHERE gap_s IS NOT NULL AND gap_s > 0
             LIMIT {args.sample}
         """)
         data = np.array([r[0] for r in rows], dtype=np.float64)
@@ -86,19 +93,19 @@ def main():
 
     # ── distfit ────────────────────────────────────────────────────────
 
-    dfit = distfit(distr="popular", n_boots=10, verbose=0)
+    dfit = distfit(distr=TIME_DISTS, stats=args.gof, n_boots=10, verbose=0)
     dfit.fit_transform(data)
-    summary = dfit.summary[["name", "score", "loc", "scale", "arg"]]
+    summary = dfit.summary[["name", "score", "bootstrap_score", "bootstrap_pass", "loc", "scale", "arg"]]
 
     print(f"\n  Best: {dfit.model['name']}  "
-          f"(score={dfit.model['score']:.4f})")
+          f"(score={dfit.model['score']:.2e}, bootstrap={'pass' if dfit.model.get('bootstrap_pass') else 'fail'})")
     print(f"  Top 5:")
     for _, row in summary.head(5).iterrows():
-        print(f"    {row['name']:<20s}  score={row['score']:.4f}")
+        print(f"    {row['name']:<20s}  score={row['score']:.2e}")
 
     # ── TSV ────────────────────────────────────────────────────────────
 
-    tsv_path = OUT / f"fit_{col_label}__{args.table_name}.tsv"
+    tsv_path = plot_dir / f"fit_{col_label}_{args.gof}__{args.table_name}.tsv"
     summary.to_csv(tsv_path, sep="\t", index=False)
     print(f"  → saved {tsv_path}")
 
@@ -107,13 +114,11 @@ def main():
     palette = sns.color_palette("colorblind")
     fig, ax = plt.subplots(figsize=(8, 5))
 
-    # Histogram
     lo, hi = np.log10(max(data.min(), 0.1)), np.log10(data.max())
     bins = np.logspace(lo, hi, 60)
     ax.hist(data, bins=bins, color=palette[0], alpha=0.6,
             edgecolor="white", linewidth=0.2, density=True, label="data")
 
-    # Best-fit PDF
     x_fit = np.logspace(lo, hi, 200)
     y_pdf = dfit.model["model"].pdf(x_fit)
     ax.plot(x_fit, y_pdf, color=palette[1], linewidth=2,
@@ -127,7 +132,7 @@ def main():
     ax.legend()
 
     fig.tight_layout()
-    path = OUT / f"fit_{col_label}__{args.table_name}.png"
+    path = plot_dir / f"fit_{col_label}_{args.gof}__{args.table_name}.png"
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  → saved {path}")
