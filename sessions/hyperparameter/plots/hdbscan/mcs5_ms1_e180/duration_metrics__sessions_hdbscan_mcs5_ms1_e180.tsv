@@ -1,0 +1,2 @@
+table	n_sessions	n_singletons	pct_singletons	pct_lt_1s	pct_lt_5s	pct_lt_60s	pct_gt_1h	pct_gt_4h	pct_gt_8h	median_s	mean_s	p90_s	p95_s	p99_s	max_s
+sessions_hdbscan_mcs5_ms1_e180	1505800	713899	47.41	47.41	47.41	49.71	15.33	8.2	5.52	907.0	11960.9	30948.0	66443.0	183487.0	682690.0
