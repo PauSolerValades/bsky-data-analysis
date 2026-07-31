@@ -113,35 +113,30 @@ def main():
         print(f"  {lang:<6s} {n:>10,}  {peak:>02d}:00 local            "
               f"{night_ratio:>11.3f}")
 
-    # ── Plot ───────────────────────────────────────────────────────────
+    # ── Plot: one PNG per language ────────────────────────────────────
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-
-    for i, lang in enumerate(LANGUAGES):
+    for idx, lang in enumerate(LANGUAGES):
         if total_sessions[lang] == 0:
             continue
+        fig, ax = plt.subplots(figsize=(6, 4))
         hours = np.arange(24)
         density = local_hours[lang]
-        ax.plot(hours, density, color=PALETTE[i], linewidth=1.5,
-                label=f"{lang} ({total_sessions[lang]:,})")
-        ax.fill_between(hours, 0, density, color=PALETTE[i], alpha=0.1)
-
-    ax.set_xlabel("Local hour of day")
-    ax.set_ylabel("Session-start density")
-    ax.set_title(f"Circadian rhythm — {args.table_name}",
-                 fontsize=12, fontweight="bold")
-    ax.set_xticks(range(0, 24, 3))
-    ax.legend()
-    ax.set_xlim(0, 23)
-
-    ax.axvspan(0, 6, color="gray", alpha=0.06)
-    ax.axvspan(22, 24, color="gray", alpha=0.06)
-
-    fig.tight_layout()
-    path = plot_dir / f"circadian__{args.table_name}.png"
-    fig.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"  → saved {path}")
+        ax.fill_between(hours, 0, density, color=PALETTE[idx], alpha=0.2)
+        ax.plot(hours, density, color=PALETTE[idx], linewidth=1.5)
+        ax.set_xlabel("Local hour of day")
+        ax.set_ylabel("Density")
+        ax.set_title(f"{lang} — {args.table_name}", fontsize=11)
+        ax.set_xticks(range(0, 24, 6))
+        ax.set_xlim(0, 23)
+        ax.axvspan(0, 6, color="gray", alpha=0.06)
+        ax.axvspan(22, 24, color="gray", alpha=0.06)
+        peak = np.argmax(density)
+        ax.axvline(peak, color="red", linestyle=":", alpha=0.5, linewidth=1)
+        fig.tight_layout()
+        path = plot_dir / f"circadian_{lang}__{args.table_name}.png"
+        fig.savefig(path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"  → saved {path}")
 
 
 if __name__ == "__main__":

@@ -66,6 +66,14 @@ def main():
     print("\n── Populating events ──")
     print("  (merging records + posts, filtering users with <2 events/day)")
 
+    # ponytail: use created_at (user-side) not time_us (server-receive).
+    # Server-side timestamps cluster during relay bursts → fake micro-sessions.
+    # Deletes/updates skipped. Fallback for ~7K creates with NULL created_at.
+    TS_EXPR_RECORDS = (
+        "COALESCE(UNIX_TIMESTAMP(r.created_at) * 1000000, r.time_us)"
+    )
+    TS_EXPR_POSTS = "UNIX_TIMESTAMP(p.created_at) * 1000000"
+
     conn.execute( f"""
         INSERT INTO {TBL}events (did, time_us, event_type)
 
@@ -76,12 +84,12 @@ def main():
                        COUNT(DISTINCT DATE(FROM_UNIXTIME(time_us / 1000000))), 1
                    ) AS events_per_day
             FROM (
-                SELECT did, time_us
+                SELECT did, {TS_EXPR_RECORDS} AS time_us
                 FROM bsky.records r
-                WHERE 1=1{EXCLUDE_SQL}
+                WHERE r.operation = 'create'{EXCLUDE_SQL}
                 UNION ALL
-                SELECT did, time_us
-                FROM bsky.posts
+                SELECT did, {TS_EXPR_POSTS} AS time_us
+                FROM bsky.posts p
             ) e
             GROUP BY did
             HAVING COUNT(*) / GREATEST(
@@ -91,24 +99,24 @@ def main():
         SELECT e.did, e.time_us, e.event_type
         FROM (
             -- Records
-            SELECT r.did, r.time_us,
+            SELECT r.did, {TS_EXPR_RECORDS} AS time_us,
                    REPLACE(REPLACE(r.collection, 'app.bsky.', ''), '.', '_') AS event_type
             FROM bsky.records r
-            WHERE 1=1{EXCLUDE_SQL}
+            WHERE r.operation = 'create'{EXCLUDE_SQL}
 
             UNION ALL
 
             -- Top-level posts
-            SELECT did, time_us, 'post_top' AS event_type
-            FROM bsky.posts
-            WHERE reply_root_uri IS NULL
+            SELECT p.did, {TS_EXPR_POSTS} AS time_us, 'post_top' AS event_type
+            FROM bsky.posts p
+            WHERE p.reply_root_uri IS NULL
 
             UNION ALL
 
             -- Replies
-            SELECT did, time_us, 'post_reply' AS event_type
-            FROM bsky.posts
-            WHERE reply_root_uri IS NOT NULL
+            SELECT p.did, {TS_EXPR_POSTS} AS time_us, 'post_reply' AS event_type
+            FROM bsky.posts p
+            WHERE p.reply_root_uri IS NOT NULL
         ) e
         JOIN user_rates ur ON e.did = ur.did
     """, "insert data")
@@ -116,7 +124,7 @@ def main():
     # ── Validation ───────────────────────────────────────────────────
 
     print("\n── Validation ──")
-    rows = conn.query("""
+    rows = conn.query(f"""
         SELECT 'total rows' AS metric, COUNT(*) AS value FROM {TBL}events
         UNION ALL
         SELECT 'distinct users', COUNT(DISTINCT did) FROM {TBL}events
@@ -127,7 +135,7 @@ def main():
         print(f"  {metric}: {value:,}")
 
     # Event type breakdown
-    rows = conn.query("""
+    rows = conn.query(f"""
         SELECT event_type, COUNT(*) AS cnt
         FROM {TBL}events
         GROUP BY event_type

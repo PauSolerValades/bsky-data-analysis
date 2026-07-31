@@ -49,22 +49,22 @@ def main():
 
     conn = local_connect(Where.from_env(), repo_root=str(REPO))
 
-    # Per-user session counts
-    for tbl, label in [(args.table_a, "A"), (args.table_b, "B")]:
-        conn.execute(f"""
-            CREATE TEMP TABLE IF NOT EXISTS counts_{label} AS
-            SELECT did, COUNT(*) AS n_sessions
-            FROM {TBL_PREFIX}{tbl}
-            GROUP BY did
-        """)
-
+    # Per-user session counts (subqueries — StarRocks has no TEMP TABLE)
     rows = conn.query(f"""
         SELECT
             COALESCE(a.did, b.did) AS did,
             COALESCE(a.n_sessions, 0) AS n_a,
             COALESCE(b.n_sessions, 0) AS n_b
-        FROM counts_a a
-        FULL OUTER JOIN counts_b b ON a.did = b.did
+        FROM (
+            SELECT did, COUNT(*) AS n_sessions
+            FROM {TBL_PREFIX}{args.table_a}
+            GROUP BY did
+        ) a
+        FULL OUTER JOIN (
+            SELECT did, COUNT(*) AS n_sessions
+            FROM {TBL_PREFIX}{args.table_b}
+            GROUP BY did
+        ) b ON a.did = b.did
     """)
     conn.close()
 
