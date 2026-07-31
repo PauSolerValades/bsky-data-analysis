@@ -1,0 +1,2 @@
+table	n_sessions	n_singletons	pct_singletons	pct_lt_1s	pct_lt_5s	pct_lt_60s	pct_gt_1h	pct_gt_4h	pct_gt_8h	median_s	mean_s	p90_s	p95_s	p99_s	max_s
+sessions_tukey_k1_2	1814376	0	0.0	21.9	27.03	50.49	8.31	4.52	3.03	117.0	6594.3	4228.0	18878.0	175326.0	690891.0
