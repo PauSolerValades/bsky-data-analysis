@@ -1,0 +1,2 @@
+table	n_sessions	n_singletons	pct_singletons	pct_lt_1s	pct_lt_5s	pct_lt_60s	pct_gt_1h	pct_gt_4h	pct_gt_8h	median_s	mean_s	p90_s	p95_s	p99_s	max_s
+sessions_fixed_300s	4491606	0	0.0	40.6	45.27	62.77	0.07	0.0	0.0	109.0	230.2	560.0	836.0	1715.0	691196.0

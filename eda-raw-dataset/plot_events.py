@@ -36,9 +36,11 @@ OUT = HERE / "results" / "event_type_distribution.png"
 # ── Query events table ──────────────────────────────────────────────────
 
 conn = local_connect(Where.from_env(), repo_root=str(REPO))
-rows = conn.query("""
+TBL = "pau_db." if Where.from_env() == Where.SERVER else ""
+
+rows = conn.query(f"""
     SELECT event_type, COUNT(*) AS cnt
-    FROM events
+    FROM {TBL}events
     GROUP BY event_type
     ORDER BY cnt DESC
 """)
