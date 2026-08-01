@@ -23,7 +23,7 @@ Whenever you generate, modify, or suggest code for data visualizations in either
 2. **Font Size:** Base font size should be 11pt to match the thesis text.
 3. **Colors:** Use colorblind-friendly palettes by default unless instructed otherwise.
 4. **NEVER CREATE MULTIPLE PLOTS IN THE SAME FILE UNLESS EXPLICITED OTHERWISE**: assume one plot, one png.
-5. **No labels, short titles**: Avoid text annotations on the plot area. Titles should be short and descriptive.
+5. **No percentile labels in histograms**: Avoid text annotations on histograms. Value labels on bar charts are fine. Titles should be short and descriptive.
 ---
 
 # Python Strict Implementation (Matplotlib / Seaborn)
