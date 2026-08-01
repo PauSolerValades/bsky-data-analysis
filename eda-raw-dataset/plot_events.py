@@ -31,7 +31,7 @@ plt.rcParams.update({
 # ── Config ────────────────────────────────────────────────────────────────
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE / "results" / "event_type_distribution.png"
+OUT = HERE / "plots" / "event_type_distribution.png"
 
 # ── Query events table ──────────────────────────────────────────────────
 
