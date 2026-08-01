@@ -1,5 +1,6 @@
-"""Top 9 event types + 'other' as a single bar.
+"""Top 9 event types + 'other' as a single bar (raw dump, no filters).
 
+Reads from raw_events: all operations, all collections, all users.
 Horizontal bar chart with the 9 most common event types shown individually,
 the remaining types aggregated into an 'other' bar.
 """
@@ -41,7 +42,7 @@ TBL = "pau_db." if WHERE == Where.SERVER else ""
 conn = local_connect(WHERE, repo_root=str(REPO))
 rows = conn.query(f"""
     SELECT event_type, COUNT(*) AS cnt
-    FROM {TBL}events
+    FROM {TBL}raw_events
     GROUP BY event_type
     ORDER BY cnt DESC
 """)
