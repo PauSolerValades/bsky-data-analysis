@@ -20,7 +20,7 @@ from running_locally.local_db import Where, get_connection as local_connect
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
-    "text.usetex": False,
+    "text.usetex": False,  # ponytail: LaTeX not installed on this machine
     "axes.labelsize": 11,
     "font.size": 11,
     "legend.fontsize": 11,
@@ -60,21 +60,8 @@ fig, ax = plt.subplots(figsize=(10, 7))
 palette = sns.color_palette("colorblind", n_colors=len(labels))
 bars = ax.barh(labels, pcts, color=palette, edgecolor="white", height=0.7)
 
-for bar, pct in zip(bars, pcts):
-    ax.text(
-        bar.get_width() + 0.3,
-        bar.get_y() + bar.get_height() / 2,
-        f"{pct:.1f}%",
-        va="center",
-        fontsize=8,
-    )
-
 ax.set_xlabel("% of all events")
-ax.set_title(
-    f"Event type distribution — {total:,} total events",
-    fontsize=12,
-    fontweight="bold",
-)
+ax.set_title("Event type distribution", fontsize=12, fontweight="bold")
 ax.set_xlim(0, max(pcts) * 1.15)
 ax.invert_yaxis()
 
