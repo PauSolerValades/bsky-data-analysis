@@ -1,7 +1,8 @@
 """HDBSCAN hyperparameter sweep.
 
-Full grid: min_cluster_size × min_samples × epsilon.
-Calls table_creation/hdbscan_cluster.py for each combination.
+Fixed to the viable corner: mcs=2, ms=1 (other combos give 28-52%
+singletons — degenerate for sessionization). Sweeps epsilon only.
+Calls table_creation/hdbscan_cluster.py for each epsilon.
 
 Usage:
     uv run sessions/hyperparameter/hdbscan_sweep.py
@@ -17,9 +18,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "table_creation" / "hdbscan_cluster.py"
 
-MIN_CLUSTER_SIZE = [2, 3, 5]
-MIN_SAMPLES = [1, 2, 3]
-EPSILONS = [0, 60, 180, 300]
+MIN_CLUSTER_SIZE = [2]
+MIN_SAMPLES = [1]
+EPSILONS = [0, 60, 180, 300, 600]
 
 
 def run_one(mcs: int, ms: int, eps: float) -> tuple[str, bool]:

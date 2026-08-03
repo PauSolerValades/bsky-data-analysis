@@ -99,11 +99,12 @@ def main():
     j_a = n_a[mask_both].astype(np.float64) + rng.uniform(-0.3, 0.3, mask_both.sum())
     j_b = n_b[mask_both].astype(np.float64) + rng.uniform(-0.3, 0.3, mask_both.sum())
 
-    hb = ax.hexbin(j_a, j_b, gridsize=50, cmap="YlOrRd", mincnt=1, bins="log")
+    # ponytail: xscale/yscale in hexbin bins in log space (set_xscale would bin linearly)
+    hb = ax.hexbin(j_a, j_b, gridsize=50, cmap="YlOrRd", mincnt=1, bins="log",
+                   xscale="log", yscale="log")
     max_val = max(n_a[mask_both].max(), n_b[mask_both].max())
     ax.plot([0, max_val], [0, max_val], "k--", alpha=0.3, linewidth=0.8,
             label="y = x")
-    ax.set_xscale("log"); ax.set_yscale("log")
     ax.set_xlabel(f"Sessions per user — {args.table_a}")
     ax.set_ylabel(f"Sessions per user — {args.table_b}")
     ax.set_title(f"Stability check\nr = {corr:.3f}   median diff = {np.median(diff_pct):.3f}   "

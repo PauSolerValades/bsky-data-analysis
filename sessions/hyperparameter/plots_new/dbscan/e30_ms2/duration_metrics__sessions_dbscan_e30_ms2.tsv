@@ -1,0 +1,2 @@
+table	n_sessions	n_singletons	pct_singletons	pct_lt_1s	pct_lt_5s	pct_lt_60s	pct_gt_1h	pct_gt_4h	pct_gt_8h	median_s	mean_s	p90_s	p95_s	p99_s	max_s
+sessions_dbscan_e30_ms2	4852412	2867330	59.09	59.09	66.37	95.35	0.0	0.0	0.0	19.0	29.7	64.0	93.0	187.0	127716.0

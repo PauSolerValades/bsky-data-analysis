@@ -15,6 +15,7 @@ dependencies = [
     "duckdb>=1.5.5",
     "running-locally",
     "distfit>=2.0.2",
+    "scikit-learn>=1.9.0",
 ]
 
 [tool.uv.sources]

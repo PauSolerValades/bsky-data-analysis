@@ -825,6 +825,7 @@ dependencies = [
     { name = "pymysql" },
     { name = "python-dotenv" },
     { name = "running-locally" },
+    { name = "scikit-learn" },
     { name = "scipy" },
 ]
 
@@ -839,6 +840,7 @@ requires-dist = [
     { name = "pymysql" },
     { name = "python-dotenv" },
     { name = "running-locally", directory = "../running-locally" },
+    { name = "scikit-learn", specifier = ">=1.9.0" },
     { name = "scipy" },
 ]
 

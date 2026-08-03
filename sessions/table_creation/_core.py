@@ -15,7 +15,7 @@ TBL_PREFIX = "pau_db." if WHERE == Where.SERVER else ""
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 BATCH_SIZE = 1000
-EVENTS_TABLE = "events_sample"  # ponytail: change to "events_sample" for sweep runs
+EVENTS_TABLE = "events"  # ponytail: "events_sample" for sweep runs, "events" for production
 
 DIDS_SQL = f"""
     SELECT DISTINCT did
