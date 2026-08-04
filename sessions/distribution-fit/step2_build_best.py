@@ -4,6 +4,10 @@ Selection: min AIC per (did, col). pareto/lomax/genpareto are reported both
 concretely (distribution — what you sample from) and grouped (family
 "power_tail" — the near-identical siblings for headline numbers).
 
+Activity threshold enforced HERE for the whole pipeline: only users with
+>= 30 duration obs AND >= 30 gap obs are kept (fits are per-user, so this is
+pure selection — no re-fitting). Downstream scripts can trust the input.
+
 Outputs (results/):
   best_per_user.tsv   did, col, n_obs, distribution, family, aic, ad
   best_params.tsv     did, col, distribution, family, param, value
@@ -22,6 +26,7 @@ HERE = Path(__file__).resolve().parent
 R = HERE / "results"
 
 POWER_TAIL = {"pareto", "lomax", "genpareto"}
+MIN_OBS = 30  # per column; user must clear it on BOTH duration and gap
 
 
 def family(d):
@@ -51,6 +56,16 @@ def main():
     agree = best["distribution"].eq(best["ad_distribution"]).mean()
     print(f"AIC-best == AD-best: {100 * agree:.1f}% of units", file=sys.stderr)
     best = best.drop("ad_distribution")
+
+    # Pairwise activity threshold: both cols present with n_obs >= MIN_OBS
+    before = best.height
+    both_ok = (best.filter(pl.col("n_obs") >= MIN_OBS)
+                   .group_by("did").len()
+                   .filter(pl.col("len") == 2)
+                   .select("did"))
+    best = best.join(both_ok, on="did")
+    print(f"activity filter (both cols n_obs>={MIN_OBS}): "
+          f"{before:,} → {best.height:,} rows", file=sys.stderr)
 
     best.write_csv(R / "best_per_user.tsv", separator="\t")
     print(f"→ best_per_user.tsv ({best.height:,} rows)", file=sys.stderr)

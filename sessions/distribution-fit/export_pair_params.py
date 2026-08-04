@@ -6,8 +6,9 @@ Joins the AIC-best distributions (best_per_user.tsv) with their fitted parameter
   dur_<param>…, gap_<param>…
 
 Param columns are generic (shape/scale/rate/meanlog/sdlog) and filled only for
-the winning distribution of that column. Users with <= 30 observations on
-either side (duration or gap n_obs) excluded.
+the winning distribution of that column. Users with < 30 observations on
+either side (duration or gap n_obs) excluded — already enforced in step2,
+kept here as a guard in case best_per_user.tsv is stale.
 
 Usage:
     uv run distribution-fit/export_pair_params.py
@@ -47,8 +48,8 @@ with open(OUT, "w", newline="") as f:
     w.writeheader()
     for did, dur in dur_best.items():
         gap = gap_best.get(did)
-        if (gap is None or int(dur["n_obs"]) <= MIN_SESSIONS
-                or int(gap["n_obs"]) <= MIN_SESSIONS):
+        if (gap is None or int(dur["n_obs"]) < MIN_SESSIONS
+                or int(gap["n_obs"]) < MIN_SESSIONS):
             continue
         out = {
             "did": did,
