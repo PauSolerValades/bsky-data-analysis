@@ -1,0 +1,11 @@
+col	family	spearman_rho
+duration	gamma	0.192202082770343
+duration	lognorm	-0.604516111088323
+duration	weibull_min	0.412675483698413
+duration	fisk	0.0312066928706966
+duration	power_tail	-0.596255266070044
+gap	gamma	0.909405986470207
+gap	lognorm	-0.435225775723
+gap	weibull_min	0.439260808074249
+gap	fisk	0.403969231245648
+gap	power_tail	-0.860442660256778
