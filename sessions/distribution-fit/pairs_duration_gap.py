@@ -1,9 +1,10 @@
 """Pairing of best-fit distribution: session duration vs inter-session gap, per user.
 
 Reads distribution-fit/results/best_per_user.tsv, pivots to one row per user,
-counts the (duration family x gap family) contingency. Users with <= 30
+counts the (duration family x gap family) contingency. Users with < 30
 observations on either side (duration or gap n_obs) are excluded — the pair
-is only as reliable as its weaker fit.
+is only as reliable as its weaker fit. Already enforced in step2; the check
+below is a guard against stale input.
 
 Usage:
     uv run distribution-fit/pairs_duration_gap.py
@@ -14,7 +15,7 @@ from collections import Counter
 from pathlib import Path
 
 TSV = Path(__file__).resolve().parent / "results/best_per_user.tsv"
-MIN_SESSIONS = 30  # exclude users with <= 30 obs on duration OR gap
+MIN_SESSIONS = 30  # exclude users with < 30 obs on duration OR gap
 
 pairs = Counter()      # (dur_family, gap_family) -> count
 pairs_concrete = Counter()  # concrete distribution level
@@ -30,7 +31,7 @@ with open(TSV, newline="") as f:
         else:
             if cur is None or cur["did"] != row["did"]:
                 continue  # gap row without preceding duration row (shouldn't happen)
-            if cur["n"] <= MIN_SESSIONS or int(row["n_obs"]) <= MIN_SESSIONS:
+            if cur["n"] < MIN_SESSIONS or int(row["n_obs"]) < MIN_SESSIONS:
                 dropped += 1
                 cur = None
                 continue
@@ -39,7 +40,7 @@ with open(TSV, newline="") as f:
             users += 1
             cur = None
 
-print(f"users kept (>{MIN_SESSIONS} dur and gap obs): {users:,}  (dropped {dropped:,})")
+print(f"users kept (>={MIN_SESSIONS} dur and gap obs): {users:,}  (dropped {dropped:,})")
 print()
 
 order = ["power_tail", "weibull_min", "lognorm", "gamma", "expon", "fisk"]
