@@ -1,0 +1,38 @@
+Truncation-regime validation
+seed 42, 30 reps, n in 30,100, ceilings 60,120,300,900,3600
+
+
+=== n = 30: AIC-picked family (rows = true), share of 150 reps ===
+            expon gamma lognorm weibull_min fisk power_tail
+expon        38.0   2.0     6.0         5.3  0.7       48.0
+gamma         0.7  20.0     8.7        20.7  3.3       46.7
+lognorm       6.0  12.7    30.7         6.7  4.0       40.0
+weibull_min  23.3  30.7     6.0        11.3  0.0       28.7
+fisk          2.0  14.7    24.0        14.7  5.3       39.3
+power_tail   24.7   6.0    10.7         8.0  2.0       48.7
+
+=== n = 100: AIC-picked family (rows = true), share of 150 reps ===
+            expon gamma lognorm weibull_min fisk power_tail
+expon        30.7   2.7     0.0         5.3  0.0       61.3
+gamma         0.0  30.0     4.0        31.3  0.0       34.7
+lognorm       0.7  15.3    31.3        19.3  6.0       27.3
+weibull_min   2.0  45.3     0.0        22.0  0.0       30.7
+fisk          0.0  12.7    17.3        14.0 20.0       36.0
+power_tail   14.7   2.7     3.3         9.3  2.7       67.3
+
+=== % correct (family level) by ceiling and n ===
+Key: <true, n>
+           true     n    60   120   300   900  3600
+         <char> <num> <num> <num> <num> <num> <num>
+ 1:       expon    30   0.0   0.0  60.0  66.7  63.3
+ 2:       expon   100   0.0   0.0   6.7  73.3  73.3
+ 3:        fisk    30   0.0   0.0   0.0  10.0  16.7
+ 4:        fisk   100   0.0   0.0   0.0  33.3  66.7
+ 5:       gamma    30   0.0   3.3  30.0  30.0  36.7
+ 6:       gamma   100   0.0   0.0  36.7  56.7  56.7
+ 7:     lognorm    30   0.0   6.7  26.7  66.7  53.3
+ 8:     lognorm   100   0.0   0.0   6.7  76.7  73.3
+ 9:  power_tail    30  86.7  80.0  56.7   3.3  16.7
+10:  power_tail   100  93.3  96.7  63.3  23.3  60.0
+11: weibull_min    30   0.0   0.0   6.7  20.0  30.0
+12: weibull_min   100   0.0   0.0   0.0  53.3  56.7

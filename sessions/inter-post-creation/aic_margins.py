@@ -63,24 +63,24 @@ def main():
               f"margin<2: {100 * np.mean(s < 2):.1f}%  "
               f"margin<1: {100 * np.mean(s < 1):.1f}%", file=sys.stderr)
 
-    # Histogram: within vs global, percent-normalised, x capped at p99
-    cap = float(np.percentile(np.concatenate(list(margins.values())), 99))
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    # One histogram per column, percent-normalised, x capped at CAP
+    # (fixed cap, not p99: the tail stretches the axis and hides the mass)
+    CAP = 20
+    OUT.mkdir(exist_ok=True)
     for col, label in COLS:
         s = margins[col]
-        sns.histplot(s[s <= cap], bins=80, stat="percent", alpha=0.6,
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        sns.histplot(s[s <= CAP], bins=80, stat="percent",
                      color=sns.color_palette("colorblind")[0 if col.endswith("within") else 1],
-                     label=label, ax=ax)
-    ax.set_xlim(0, cap)
-    ax.set_xlabel("$\\Delta$AIC margin to runner-up (best $-$ 2nd best)")
-    ax.set_ylabel("share of users (%)")
-    ax.legend(title=None)
-    ax.set_title("AIC margin between best and runner-up fit")
-    fig.tight_layout()
-    OUT.mkdir(exist_ok=True)
-    p = OUT / "aic_margins.png"
-    fig.savefig(p, dpi=300)
-    print(f"→ {p}", file=sys.stderr)
+                     ax=ax)
+        ax.set_xlim(0, CAP)
+        ax.set_xlabel("$\\Delta$AIC margin to runner-up (best $-$ 2nd best)")
+        ax.set_ylabel("share of users (%)")
+        ax.set_title(f"AIC margin between best and runner-up fit — {label}")
+        fig.tight_layout()
+        p = OUT / f"aic_margins_{'within' if col.endswith('within') else 'global'}.png"
+        fig.savefig(p, dpi=300)
+        print(f"→ {p}", file=sys.stderr)
 
 
 if __name__ == "__main__":

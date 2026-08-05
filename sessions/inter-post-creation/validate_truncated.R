@@ -59,6 +59,11 @@ suppressMessages(library(data.table))
 dt <- as.data.table(grid)
 fams <- c("expon", "gamma", "lognorm", "weibull_min", "fisk", "power_tail")
 
+## Tee the whole results block to a txt (committed artifact)
+sink("inter-post-creation/results/truncation_confusion.txt", split = TRUE)
+cat(sprintf("Truncation-regime validation\nseed 42, %d reps, n in %s, ceilings %s\n\n",
+            REPS, paste(NS, collapse = ","), paste(CEILINGS, collapse = ",")))
+
 ## Headline: confusion at n = 100 across ceilings
 for (nn in NS) {
   cat(sprintf("\n=== n = %d: AIC-picked family (rows = true), share of %d reps ===\n",
@@ -76,3 +81,4 @@ cat("\n=== % correct (family level) by ceiling and n ===\n")
 acc <- dt[!is.na(picked), .(acc = round(100 * mean(picked == true), 1)),
           by = .(true, n, T)][order(true, n, T)]
 print(dcast(acc, true + n ~ T, value.var = "acc"))
+sink()
