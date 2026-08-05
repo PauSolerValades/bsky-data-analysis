@@ -152,7 +152,7 @@ proves too coarse: K archetype ECDFs binned by user mean within gap.
 | `results/best_per_user.tsv`, `best_params.tsv` | AIC winners + params |
 | `results/family_summary.tsv` | composition per col (all / n≥30) |
 | `results/pair_summary.tsv` | within × global family crosstab (both ≥30) |
-| `results/independence_ecdf.png` | real vs replay within ECDF overlay |
+| `plots/independence_ecdf.png` | real vs replay within ECDF overlay |
 | `results/within_interpost_ecdf.txt` | pooled within ECDF for the sim |
 | `results/within_ecdf__{family}.txt` | per-global-family within ECDFs |
 
