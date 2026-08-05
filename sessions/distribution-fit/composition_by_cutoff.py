@@ -6,7 +6,15 @@ enough user" criterion: the duration composition collapses from ~45% to
 ~11% power-law between cutoff 0 and 20-30 and stabilises there, while the
 gap side keeps drifting (power-law returns for very active users).
 
-Usage:
+!!! DO NOT RE-RUN !!!
+This sweep requires the PRE-FILTER best_per_user.tsv (all fitted users).
+step2_build_best.py now enforces n_obs >= 30 on both columns, so any
+newly-generated best_per_user.tsv contains only active users and this
+cutoff sweep would come out degenerate (every row identical to the
+>=30 row). Kept in the repo only as documentation of why the >=30
+threshold was chosen; the thesis table was frozen from the old dump.
+
+Usage (historical only):
     uv run distribution-fit/composition_by_cutoff.py
     uv run distribution-fit/composition_by_cutoff.py --out results/composition_by_cutoff.tsv
 """
