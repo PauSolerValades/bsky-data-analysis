@@ -24,8 +24,8 @@ expon	weibull_min	110	0.17
 weibull_min	weibull_min	60	0.09
 expon	fisk	19	0.03
 power_tail	gamma	11	0.02
-gamma	gamma	9	0.01
 weibull_min	gamma	9	0.01
+gamma	gamma	9	0.01
+power_tail	expon	1	0.0
 lognorm	gamma	1	0.0
 fisk	gamma	1	0.0
-power_tail	expon	1	0.0
