@@ -1,19 +1,21 @@
 #!/usr/bin/env Rscript
 ## Per-user fitting over one parquet chunk. Parallel via mclapply.
 ##
-## Usage: Rscript fit_chunk.R <chunk> [cores]
-## Input:  data/chunk{K}.parquet (did, col, value)  — gaps shifted by -300 here
-## Output: results/gof__chunk{K}.tsv, results/params__chunk{K}.tsv
+## Usage: Rscript fit_chunk.R <chunk> [cores] [data_dir] [out_dir]
+## Input:  <data_dir>/chunk{K}.parquet (did, col, value) — col "gap" shifted -300
+## Output: <out_dir>/gof__chunk{K}.tsv, <out_dir>/params__chunk{K}.tsv
 
 args <- commandArgs(trailingOnly = TRUE)
 chunk <- as.integer(args[1])
 cores <- if (length(args) >= 2) as.integer(args[2]) else 64
-GAP_SHIFT <- 300
+data_dir <- if (length(args) >= 3) args[3] else "data"
+out_dir <- if (length(args) >= 4) args[4] else "results"
+GAP_SHIFT <- 300  # ponytail: only col == "gap" is shifted; interpost cols pass through
 
 suppressMessages({library(arrow); library(data.table)})
 source(file.path(dirname(sub("--file=", "", grep("--file=", commandArgs(FALSE), value = TRUE)[1])), "fit_lib.R"))
 
-df <- as.data.table(read_parquet(sprintf("data/chunk%d.parquet", chunk)))
+df <- as.data.table(read_parquet(sprintf("%s/chunk%d.parquet", data_dir, chunk)))
 df[col == "gap", value := value - GAP_SHIFT]   # known left-truncation at eps
 df <- df[value > 0]
 
@@ -24,7 +26,7 @@ t0 <- Sys.time()
 res <- parallel::mclapply(units, fit_one, mc.cores = cores)
 cat(sprintf("fitted in %.0f min\n", as.numeric(difftime(Sys.time(), t0, units = "mins"))))
 
-dir.create("results", showWarnings = FALSE)
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 keys <- names(res)
 ok <- !sapply(res, is.null)
 res <- res[ok]; keys <- keys[ok]
@@ -37,8 +39,8 @@ params_all <- rbindlist(lapply(seq_along(res), function(i) {
   cbind(did = dk[i, 1], col = dk[i, 2], res[[i]]$params)
 }))
 
-fwrite(gof_all, sprintf("results/gof__chunk%d.tsv", chunk), sep = "\t")
-fwrite(params_all, sprintf("results/params__chunk%d.tsv", chunk), sep = "\t")
+fwrite(gof_all, sprintf("%s/gof__chunk%d.tsv", out_dir, chunk), sep = "\t")
+fwrite(params_all, sprintf("%s/params__chunk%d.tsv", out_dir, chunk), sep = "\t")
 cat(sprintf("wrote %s gof rows, %s param rows (%d units skipped)\n",
             format(nrow(gof_all), big.mark = ","),
             format(nrow(params_all), big.mark = ","), sum(!ok)))
