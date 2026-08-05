@@ -68,40 +68,76 @@ Consequence: **no family composition is reported for within**. The column is
 described by shape (quantiles) only. Global carries family identity (wide
 support, validated recovery in `distribution-fit/validate.R`).
 
-## Finding 2 — posting is session-modulated (independence replay test)
+## Finding 2 — posting is session-coupled (permutation test + replay probes)
 
-Question for the simulator: is the within distribution just the global process
-viewed through session windows? If yes, no separate within model is needed.
+Full write-up: **`PERMUTATION_TEST.md`**.
 
-**`independence_test.py`** (5,000 users sampled from the ≥30-global pool;
-4,612 with ≥5 real within gaps). Two replays against the user's REAL session
-intervals:
+Question for the simulator: can the within column be *derived* from the
+global column (which is easy to fit) plus the session gate? If yes, no
+separate within model is needed. H0: the post stream is independent of the
+session windows — within gaps are just global gaps that happen to land
+inside windows.
 
-1. **iid replay**: bootstrap the user's own empirical global gaps into a new
-   stream (t0 = first real post). → within-pair **count ratio real/synth:
-   median 18×**; synth produces < half of real for 100% of users; only 11% of
-   users get ≥5 synthetic within pairs.
-2. **Shift replay**: real gaps in real order, random circular time offset —
-   destroys only the post↔session alignment, preserves all serial structure.
-   → same deficit (**19×**). Not burstiness; the coupling is the alignment
-   itself.
+**Formal test (`independence_test.py`)** — permutation test on the
+post↔session alignment:
 
-But among comparable pairs, **lengths match**: per-user median(real)/median
-(synth) = 1.02, p75 identical. Conclusion: posting is session-modulated in
-**rate**, not in gap **shape**. The within-session cadence is its own process
-and must be modeled as such.
+- **Statistic**: per-user within-session pair count, one-sided (real > null).
+- **Null**: R = 999 random circular time-shifts of the user's REAL post
+  stream. Gaps, order, burstiness, and windows are all preserved; only the
+  alignment is destroyed — this is the exact permutation for H0.
+- **Result** (1,000 users from the ≥30-global pool, 920 with ≥5 real within
+  pairs): **100% of users reject H0** at the resolution limit p ≤ 0.001;
+  Fisher combined χ² = 12,679 on 1,840 df. Observed count / median null
+  count: **21×**.
+
+**Descriptive probes** (decompose the rejection; not part of the formal test):
+
+1. **iid replay** (bootstrap own global gaps, replay through real windows):
+   same ~19× count deficit → not an artifact of destroying serial structure.
+   But among gate-surviving pairs, per-user median lengths match (ratio
+   1.02). Caveat: this shape match is near-tautological — the gate selects
+   the short component of the global mixture, which IS the within component
+   (see ontology note below). The test's real content is the count rejection.
+2. **Conditional-truncation replay** (the "within = truncated global" repair:
+   inside each session, sample global gaps conditioned on ≤ remaining time):
+   **rejected in the opposite direction** — ~3× too many pairs (ratio 0.3),
+   gaps ~2× too short (median 49s vs real 95s; per-user median ratio 2.03).
+   Repeated conditioning on shrinking remaining time over-weights the short
+   end of the global law — a bias real posting doesn't have. No rate
+   multiplier fixes this; it would worsen the count surplus.
+
+Conclusion: within-session cadence is its **own law** — neither the global
+process gated by windows nor the global law truncated by them. It must be
+modeled as such (ECDF, below).
+
+### Ontology note (which column is "real"?)
+
+Neither. Users can only post while online, so the within cadence is
+generative and the global column is a two-component **mixture** (within gaps
++ cross-session gaps = end-of-session censor + offline wait + next-session
+offset), which is also why single-family global fits are a compression of a
+mixture. The global column survives only as a user-level heterogeneity
+*label* (which per-family ECDF to load). Conversely, the global
+counterfactual was necessary to *prove* the coupling exists — rejecting the
+session-blind model is what justifies the two-component design over the
+cheaper one-component one.
 
 ## Decision — empirical (ECDF) sampling for the simulator
 
 Three routes were considered:
 
 1. **Session-independent posts in the sim** (sample global, let the session
-   gate produce within) — **disproved** by Finding 2 (~18× too few
-   within-session posts).
-2. **Truncated-likelihood fits** (per-pair ceiling = remaining session time) —
-   restores identifiability in principle, but requires a custom fitting
-   pipeline; rejected as out of scope.
-3. **ECDF sampling** — chosen. The empirical within distribution is exactly
+   gate produce within) — **disproved** by Finding 2 (permutation test,
+   p ≤ 0.001 for 100% of users; ~19× too few within-session posts).
+2. **Conditional-truncation sampling** (sample global gaps conditioned on
+   ≤ remaining session time) — **disproved** by the Finding-2 replay: ~3× too
+   many posts, gaps ~2× too short.
+3. **Truncated-likelihood fits** (per-pair ceiling = remaining session time,
+   e.g. fitdistrplus + truncdist) — restores identifiability in principle,
+   but the ceiling varies per pair (remaining session time, not a fixed b),
+   requiring a custom likelihood, and estimates stay high-variance with the
+   ceiling on the bulk (Finding 1 regime); rejected as out of scope.
+4. **ECDF sampling** — chosen. The empirical within distribution is exactly
    the truncated quantity the simulator must reproduce; 11.1M observations
    make the ECDF essentially exact, and no extrapolation beyond the session
    ceiling is ever needed. Same principle already used for parameter sampling
@@ -162,9 +198,11 @@ proves too coarse: K archetype ECDFs binned by user mean within gap.
    but are **not identifiable** — see Finding 1; do not cite as family shares.
 2. Replay caveat: real sessions are built from all events *including* posts,
    so windows and post times are mildly coupled by construction. Likes
-   dominate events (~5:1 over posts), and the shift replay controls for serial
-   structure, so the 18× deficit is attributed to rate modulation, not
-   window-formation artifacts.
+   dominate events (~5:1 over posts), and the permutation null preserves
+   windows, gap order and all serial structure, so the rejection is
+   attributed to the alignment (rate modulation), not window-formation
+   artifacts. The conditional replay's first-post-at-session-start
+   convention is conservative (fixing it only increases its surplus).
 3. Singleton sessions (40.6% of sessions) can contain at most one post →
    contribute no within pairs.
 4. Exact same-μs post bursts (124k) are excluded; sub-1s gaps otherwise

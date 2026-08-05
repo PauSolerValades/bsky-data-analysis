@@ -1,5 +1,16 @@
 """H0: posts are a session-independent point process.
 
+Formalized as a PERMUTATION TEST on the post<->session alignment:
+  statistic: per-user within-session pair count (one-sided: real > null).
+  null:      R random circular time-shifts of the user's REAL post stream
+             (gap sequence, order, burstiness preserved; only the alignment
+             with the session windows is destroyed). p = (1+#{null>=obs})/(R+1).
+  combined:  Fisher's method across users.
+
+Descriptive replays (not part of the formal test): iid bootstrap of global
+gaps (rate/shape decomposition) and conditional-truncation sampling (the
+"within = truncated global" repair hypothesis — rejected, see METHODOLOGY).
+
 Replay test, per user:
   1. real: within-session gaps from the user's real post stream vs real sessions.
   2. synthetic: bootstrap the user's own empirical GLOBAL gaps into a new post
@@ -49,6 +60,13 @@ MIN_GLOBAL = 30
 CAP_PER_USER = 200  # ponytail: heavy users would dominate the pooled ECDF
 
 
+def within_count(ts, starts, ends):
+    """Consecutive-post pairs inside the same session (vectorized user_gaps)."""
+    sid = np.searchsorted(starts, ts, side="right") - 1
+    ok = (sid >= 0) & (ts <= ends[np.clip(sid, 0, None)])
+    return int(np.sum(ok[:-1] & ok[1:] & (sid[:-1] == sid[1:])))
+
+
 def fetch(conn, dids):
     """Return ({did: [post_ts_us]}, {did: [(start,end)]})."""
     sessions, posts = defaultdict(list), defaultdict(list)
@@ -70,7 +88,9 @@ def fetch(conn, dids):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--users", type=int, default=5000)
+    ap.add_argument("--perms", type=int, default=499, help="circular-shift null draws")
     args = ap.parse_args()
+    R = args.perms
 
     best = pl.read_csv(HERE / "results/best_per_user.tsv", separator="\t")
     pool = best.filter((pl.col("col") == "interpost_global")
@@ -84,11 +104,13 @@ def main():
     posts, sessions = fetch(conn, dids)
     conn.close()
 
-    real_pool, synth_pool = [], []
-    ratios = []  # per-user real_median / synth_median
+    real_pool, synth_pool, cond_pool = [], [], []
+    ratios, cond_ratios = [], []  # per-user real_median / synth_median
     count_ratios = []  # per-user len(real_w) / len(synth_w)
-    shift_count_ratios = []  # same for the circular-shift replay
-    n_real_ok = n_synth_ok = 0
+    shift_count_ratios = []  # obs / median null count (circular-shift replay)
+    pvals = []  # per-user permutation p-values
+    cond_count_ratios = []  # same for the conditional-truncation replay
+    n_real_ok = n_synth_ok = n_cond_ok = 0
     for did in dids:
         ps, iv = posts.get(did), sessions.get(did, [])
         if not ps or len(ps) < MIN_GLOBAL + 1:
@@ -104,13 +126,41 @@ def main():
         synth_ts = [int(t) for t in synth if t <= ps[-1]]
         synth_w, _ = user_gaps(synth_ts, iv)
         count_ratios.append(len(real_w) / max(len(synth_w), 1))
-        # shift replay: real gaps, real order, random offset — only the
-        # post<->session alignment is destroyed, serial structure preserved
+        # permutation null: R random circular shifts — real gaps, real order,
+        # only the post<->session alignment destroyed (the formal test)
+        ps_arr = np.array(ps)
         span = ps[-1] - ps[0]
-        off = rng.uniform(0, span)
-        shifted = [ps[0] + int((t - ps[0] + off) % span) for t in ps]
-        shift_w, _ = user_gaps(sorted(shifted), iv)
-        shift_count_ratios.append(len(real_w) / max(len(shift_w), 1))
+        starts = np.array([s for s, _ in iv])
+        ends = np.array([e for _, e in iv])
+        assert within_count(ps_arr, starts, ends) == len(real_w)
+        null_counts = np.empty(R)
+        for r_ in range(R):
+            off = int(rng.uniform(0, span))
+            shifted = np.sort((ps_arr - ps[0] + off) % span + ps[0])
+            null_counts[r_] = within_count(shifted, starts, ends)
+        obs = len(real_w)
+        pvals.append((1 + np.sum(null_counts >= obs)) / (R + 1))
+        shift_count_ratios.append(obs / max(np.median(null_counts), 1))
+        # conditional replay: inside each real session, sample global gaps
+        # conditioned on gap <= remaining session time (first post at start)
+        sg = np.sort(gaps)
+        cond_w = []
+        for s, e in iv:
+            t = s
+            while len(cond_w) < 10_000:  # ponytail: cap pathological users
+                rem = (e - t) / 1e6
+                k = np.searchsorted(sg, rem, side="right")
+                if k == 0:
+                    break
+                g = sg[rng.integers(0, k)]
+                cond_w.append(g)
+                t += int(g * 1e6)
+        cond_count_ratios.append(len(real_w) / max(len(cond_w), 1))
+        if len(cond_w) >= 5:
+            n_cond_ok += 1
+            cond_ratios.append(np.median(real_w) / np.median(cond_w))
+            cond_pool.extend(rng.choice(cond_w, min(CAP_PER_USER, len(cond_w)),
+                                        replace=False))
         if len(synth_w) < 5:
             continue
         n_synth_ok += 1
@@ -119,6 +169,7 @@ def main():
         ratios.append(np.median(real_w) / np.median(synth_w))
 
     r, s = np.array(real_pool), np.array(synth_pool)
+    c = np.array(cond_pool)
     ratios = np.array(ratios)
     count_ratios = np.array(count_ratios)
     print(f"\nusers with >=5 real within gaps: {n_real_ok:,}; "
@@ -128,18 +179,31 @@ def main():
     scr = np.array(shift_count_ratios)
     print(f"SHIFT replay (real order preserved) count ratio: median {np.median(scr):.1f}x, "
           f"shift has <half of real for {100*(scr>2).mean():.0f}% of users")
+    pv = np.array(pvals)
+    fisher = -2 * np.sum(np.log(pv))
+    print(f"PERMUTATION TEST ({R} shifts): {100*(pv<=0.05).mean():.0f}% of users "
+          f"reject H0 at 0.05 (min attainable p={1/(R+1):.4f}), median p={np.median(pv):.4f}, "
+          f"Fisher chi2={fisher:.0f} on {2*len(pv)} df")
+    ccr = np.array(cond_count_ratios)
+    print(f"COND replay (truncated sampling) count ratio: median {np.median(ccr):.1f}x, "
+          f"cond has <half of real for {100*(ccr>2).mean():.0f}% of users, "
+          f">=5 cond gaps for {n_cond_ok:,} users")
+    cr = np.array(cond_ratios)
+    print(f"COND per-user median(real)/median(cond): median {np.median(cr):.2f}, "
+          f"real < cond for {100 * (cr < 1).mean():.0f}% of users")
     print(f"\nusers in test: {len(ratios):,}  pooled gaps: real {len(r):,} / synth {len(s):,}")
-    print(f"\n{'quantile':>8} {'real within':>12} {'synth within':>13} {'real/synth':>11}")
+    print(f"\n{'quantile':>8} {'real within':>12} {'synth within':>13} {'cond within':>12}")
     for q in (0.25, 0.5, 0.75, 0.9, 0.99):
-        rq, sq = np.quantile(r, q), np.quantile(s, q)
-        print(f"p{int(q*100):>6} {rq:>11.0f}s {sq:>12.0f}s {rq/sq:>11.2f}")
+        rq, sq, cq = np.quantile(r, q), np.quantile(s, q), np.quantile(c, q)
+        print(f"p{int(q*100):>6} {rq:>11.0f}s {sq:>12.0f}s {cq:>11.0f}s")
     print(f"\nper-user median(real)/median(synth): median {np.median(ratios):.2f}, "
           f"real < synth for {100 * (ratios < 1).mean():.0f}% of users")
 
     # ECDF overlay (one plot, thesis style)
     fig, ax = plt.subplots(figsize=(7, 4.5))
     for data, label, color in ((r, "real within-session", "#0072B2"),
-                               (s, "synthetic (global replay)", "#D55E00")):
+                               (s, "synthetic (global replay)", "#D55E00"),
+                               (c, "conditional (truncated sampling)", "#009E73")):
         xs = np.sort(data)
         ax.plot(xs, np.arange(1, len(xs) + 1) / len(xs), label=label, color=color,
                 linewidth=1.2)
