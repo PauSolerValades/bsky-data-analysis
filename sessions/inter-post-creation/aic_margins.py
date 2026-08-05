@@ -77,6 +77,11 @@ def main():
         ax.set_xlabel("$\\Delta$AIC margin to runner-up (best $-$ 2nd best)")
         ax.set_ylabel("share of users (%)")
         ax.set_title(f"AIC margin between best and runner-up fit — {label}")
+        # margin < 2 = models effectively indistinguishable
+        ax.axvline(2, color="black", ls="--", lw=1.2,
+                   label="$\\Delta$AIC = 2 (indistinguishable)")
+        ax.axvspan(0, 2, color="gray", alpha=0.15)
+        ax.legend(frameon=True)
         fig.tight_layout()
         p = OUT / f"aic_margins_{'within' if col.endswith('within') else 'global'}.png"
         fig.savefig(p, dpi=300)
