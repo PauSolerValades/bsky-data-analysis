@@ -3,14 +3,13 @@
 For every session, count how many post creations fall inside it. Most sessions
 contain zero or one post (66% / 24%): sessions are short AND users do not post
 much inside them, so the within-session inter-post sample is intrinsically
-tiny. The rate metric — posts per session-hour, among active sessions —
-normalizes for session length.
+tiny.
 
-Per-session (post count, duration) is cached in results/posts_per_session_cache.npz
+Per-session (post count, duration s) is cached in results/posts_per_session_cache.npz
 after the first DB pass, so reruns only replot. Delete the cache to recompute.
+The length-normalized rate lives in the sister script posts_per_minute.py.
 
-Output: plots/posts_per_session.png (counts, % labels) + plots/posts_per_hour.png
-        (rate among active sessions).
+Output: plots/posts_per_session.png (counts, % labels).
 
 Usage:
     uv run inter-post-creation/posts_per_session.py
@@ -94,14 +93,13 @@ def fetch():
 
 
 def main():
-    counts, durations = fetch()
+    counts, _ = fetch()
     n = len(counts)
     print(f"\nsessions: {n:,}   posts/session: "
           f"mean {counts.mean():.3f}  p50 {np.median(counts):.0f}  "
           f"p90 {np.percentile(counts, 90):.0f}  p99 {np.percentile(counts, 99):.0f}  "
           f"max {counts.max():.0f}", file=sys.stderr)
 
-    # ── Plot 1: posts per session (0..5 exact, 6+ pooled), % labels ──────
     dist = np.bincount(counts)
     tail6 = dist[6:].sum()
     pct = np.concatenate([dist[:6] / n * 100, [tail6 / n * 100]])
@@ -119,28 +117,9 @@ def main():
     ax.set_title("Post creations per session")
     ax.set_ylim(0, pct.max() * 1.15)
     fig.tight_layout()
-    p1 = HERE / "plots" / "posts_per_session.png"
-    fig.savefig(p1, dpi=300)
-
-    # ── Plot 2: posts per session-hour among active sessions ─────────────
-    active = counts > 0
-    rate = counts[active] * 3600.0 / durations[active]
-    print(f"\nactive sessions (≥1 post): {active.sum():,} ({100 * active.mean():.1f}%)  "
-          f"posts/session-hour: median {np.median(rate):.1f}  mean {rate.mean():.1f}  "
-          f"p90 {np.percentile(rate, 90):.1f}  p99 {np.percentile(rate, 99):.1f}",
-          file=sys.stderr)
-    cap = float(np.percentile(rate, 99))
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    sns.histplot(rate[rate <= cap], bins=60, stat="percent",
-                 color=sns.color_palette("colorblind")[1], ax=ax)
-    ax.set_xlim(0, cap)
-    ax.set_xlabel("posts per session-hour (sessions with ≥ 1 post)")
-    ax.set_ylabel("share of active sessions (%)")
-    ax.set_title("Post intensity among active sessions")
-    fig.tight_layout()
-    p2 = HERE / "plots" / "posts_per_hour.png"
-    fig.savefig(p2, dpi=300)
-    print(f"→ {p1}\n→ {p2}", file=sys.stderr)
+    p = HERE / "plots" / "posts_per_session.png"
+    fig.savefig(p, dpi=300)
+    print(f"→ {p}", file=sys.stderr)
 
 
 if __name__ == "__main__":
