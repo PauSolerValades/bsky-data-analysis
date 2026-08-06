@@ -28,6 +28,7 @@ REPO_SESSIONS = HERE.parent
 WIDE = REPO_SESSIONS / "distribution-fit" / "results" / "pair_params_wide.tsv"
 SPU = HERE / "results" / "sessions_per_user.tsv"
 MIN_PAIR_SHARE = 0.01
+K_MAX = 20  # last pooled category with share >= 0.01%
 
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
@@ -91,25 +92,28 @@ def main():
         sel = counts[np.isin(sess_did, pos)]
         n = len(sel)
         dist = np.bincount(sel)
-        tail6 = dist[6:].sum()
-        pct = np.concatenate([dist[:6] / n * 100, [tail6 / n * 100]])
+        pct = dist[:K_MAX + 1] / n * 100
+        tail = dist[K_MAX + 1:].sum()
         print(f"\n{dur} x {gap}: {n_users:,} users, {n:,} sessions "
-              f"({100 * n / len(counts):.1f}% of all)", file=sys.stderr)
-        for k in range(6):
-            print(f"  {k} posts: {pct[k]:.2f}%", file=sys.stderr)
-            dist_rows.append((dur, gap, n_users, k, int(dist[k]), round(pct[k], 2)))
-        print(f"  >=6 posts: {pct[6]:.2f}%", file=sys.stderr)
-        dist_rows.append((dur, gap, n_users, "6+", int(tail6), round(pct[6], 2)))
+              f"({100 * n / len(counts):.1f}% of all)  "
+              f"k>{K_MAX}: {100 * tail / n:.3f}%", file=sys.stderr)
+        if 100 * tail / n >= 0.5:
+            print(f"  WARNING: dropped tail >= 0.5% — raise K_MAX", file=sys.stderr)
+        for k in range(K_MAX + 1):
+            dist_rows.append((dur, gap, n_users, k, int(dist[k]), round(pct[k], 3)))
+        dist_rows.append((dur, gap, n_users, f"{K_MAX + 1}+", int(tail),
+                          round(100 * tail / n, 3)))
 
-        fig, ax = plt.subplots(figsize=(7, 4.5))
-        ax.bar(np.arange(7), pct, color=sns.color_palette("colorblind")[0], width=0.7)
-        ax.bar_label(ax.containers[0], fmt="%.1f", padding=2, fontsize=9)
-        ax.set_xticks(np.arange(7))
-        ax.set_xticklabels(["0", "1", "2", "3", "4", "5", "6+"])
+        x = np.arange(K_MAX + 1)
+        labels = [f"{p:.1f}" if p >= 0.1 else "" for p in pct]
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        ax.bar(x, pct, color=sns.color_palette("colorblind")[0], width=0.7)
+        ax.bar_label(ax.containers[0], labels=labels, padding=2, fontsize=8)
+        ax.set_xticks(x)
         ax.set_xlabel("posts per session")
         ax.set_ylabel("share of sessions (%)")
         ax.set_title(f"Post creations per session — {DISPLAY[dur]} $\\times$ "
-                     f"{DISPLAY[gap]} users")
+                     f"{DISPLAY[gap]} users (n = {n_users:,})")
         ax.set_ylim(0, pct.max() * 1.15)
         fig.tight_layout()
         p = HERE / "plots" / f"posts_per_session__{dur}__{gap}.png"

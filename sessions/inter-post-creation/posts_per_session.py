@@ -30,6 +30,8 @@ from _core import get_connection, _execute, TBL_PREFIX
 
 BATCH_DIDS = 2000
 CACHE = HERE / "results" / "posts_per_session_cache.npz"
+SPU = HERE / "results" / "sessions_per_user.tsv"
+K_MAX = 20  # last category with share >= 0.01%; k>20 sums to 0.08%
 
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
@@ -95,26 +97,30 @@ def fetch():
 def main():
     counts, _ = fetch()
     n = len(counts)
+    n_users = sum(1 for _ in open(SPU)) - 1 if SPU.exists() else None
     print(f"\nsessions: {n:,}   posts/session: "
           f"mean {counts.mean():.3f}  p50 {np.median(counts):.0f}  "
           f"p90 {np.percentile(counts, 90):.0f}  p99 {np.percentile(counts, 99):.0f}  "
           f"max {counts.max():.0f}", file=sys.stderr)
 
     dist = np.bincount(counts)
-    tail6 = dist[6:].sum()
-    pct = np.concatenate([dist[:6] / n * 100, [tail6 / n * 100]])
-    for k in range(6):
-        print(f"  {k} posts: {100 * dist[k] / n:.2f}%", file=sys.stderr)
-    print(f"  >=6 posts: {100 * tail6 / n:.2f}%", file=sys.stderr)
+    pct = dist[:K_MAX + 1] / n * 100
+    print(f"  share of k>{K_MAX}: {100 * dist[K_MAX + 1:].sum() / n:.3f}%", file=sys.stderr)
+    if 100 * dist[K_MAX + 1:].sum() / n >= 0.5:
+        print("  WARNING: dropped tail >= 0.5% — raise K_MAX", file=sys.stderr)
 
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    ax.bar(np.arange(7), pct, color=sns.color_palette("colorblind")[0], width=0.7)
-    ax.bar_label(ax.containers[0], fmt="%.1f", padding=2, fontsize=9)
-    ax.set_xticks(np.arange(7))
-    ax.set_xticklabels(["0", "1", "2", "3", "4", "5", "6+"])
+    x = np.arange(K_MAX + 1)
+    labels = [f"{p:.1f}" if p >= 0.1 else "" for p in pct]
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    ax.bar(x, pct, color=sns.color_palette("colorblind")[0], width=0.7)
+    ax.bar_label(ax.containers[0], labels=labels, padding=2, fontsize=8)
+    ax.set_xticks(x)
     ax.set_xlabel("posts per session")
     ax.set_ylabel("share of sessions (%)")
-    ax.set_title("Post creations per session")
+    title = "Post creations per session"
+    if n_users is not None:
+        title += f" (n = {n_users:,} users)"
+    ax.set_title(title)
     ax.set_ylim(0, pct.max() * 1.15)
     fig.tight_layout()
     p = HERE / "plots" / "posts_per_session.png"
