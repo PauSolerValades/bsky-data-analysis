@@ -31,7 +31,7 @@ from _core import get_connection, _execute, TBL_PREFIX
 BATCH_DIDS = 2000
 CACHE = HERE / "results" / "posts_per_session_cache.npz"
 SPU = HERE / "results" / "sessions_per_user.tsv"
-VISIBLE = 0.0005  # smallest bar share rendered (below = empty-looking)
+VISIBLE = 0.0001  # smallest bar share rendered (below = truly nothing)
 TAIL_MAX = 0.005  # dropped tail must stay below this
 
 # ── Thesis styling ───────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ def main():
 
     pct = d[:K + 1] * 100
     x = np.arange(K + 1)
-    labels = [f"{p:.1f}" if p >= 0.1 else "" for p in pct]
+    labels = [f"{p:.2f}" for p in pct]
     fig, ax = plt.subplots(figsize=(9, 4.5))
     ax.bar(x, pct, color=sns.color_palette("colorblind")[0], width=0.7)
     ax.bar_label(ax.containers[0], labels=labels, padding=2, fontsize=8)

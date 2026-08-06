@@ -28,7 +28,7 @@ REPO_SESSIONS = HERE.parent
 WIDE = REPO_SESSIONS / "distribution-fit" / "results" / "pair_params_wide.tsv"
 SPU = HERE / "results" / "sessions_per_user.tsv"
 MIN_PAIR_SHARE = 0.01
-VISIBLE = 0.0005  # smallest bar share rendered (below = empty-looking)
+VISIBLE = 0.0001  # smallest bar share rendered (below = truly nothing)
 TAIL_MAX = 0.005  # dropped tail must stay below this
 
 # ── Thesis styling ───────────────────────────────────────────────────────
@@ -108,11 +108,9 @@ def main():
         pct = d[:K + 1] * 100
         for k in range(K + 1):
             dist_rows.append((dur, gap, n_users, k, int(dist[k]), round(pct[k], 3)))
-        dist_rows.append((dur, gap, n_users, f"{K + 1}+", int(dist[K + 1:].sum()),
-                          round(100 * tail, 3)))
 
         x = np.arange(K + 1)
-        labels = [f"{p:.1f}" if p >= 0.1 else "" for p in pct]
+        labels = [f"{p:.2f}" for p in pct]
         fig, ax = plt.subplots(figsize=(9, 4.5))
         ax.bar(x, pct, color=sns.color_palette("colorblind")[0], width=0.7)
         ax.bar_label(ax.containers[0], labels=labels, padding=2, fontsize=8)
