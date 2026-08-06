@@ -1,15 +1,16 @@
 """Posts per session: the count-side showcase of the within-session fitting problem.
 
-For every session, count how many post creations fall inside it. The point:
-most sessions contain zero or one post --- sessions are short (median 110 s)
-AND users simply do not post much inside them, by definition of a session as
-an activity window dominated by non-post events. The within-session inter-post
-sample is therefore intrinsically tiny; this is the data-side reason the
-per-user within fits are starved, complementary to the AIC-margin and
-truncation-simulation evidence (see the report's Within Creation Distribution
-section).
+For every session, count how many post creations fall inside it. Most sessions
+contain zero or one post (66% / 24%): sessions are short AND users do not post
+much inside them, so the within-session inter-post sample is intrinsically
+tiny. The rate metric — posts per session-hour, among active sessions —
+normalizes for session length.
 
-Output: plots/posts_per_session.png + console summary.
+Per-session (post count, duration) is cached in results/posts_per_session_cache.npz
+after the first DB pass, so reruns only replot. Delete the cache to recompute.
+
+Output: plots/posts_per_session.png (counts, % labels) + plots/posts_per_hour.png
+        (rate among active sessions).
 
 Usage:
     uv run inter-post-creation/posts_per_session.py
@@ -29,14 +30,31 @@ sys.path.insert(0, str(HERE.parent / "table_creation"))
 from _core import get_connection, _execute, TBL_PREFIX
 
 BATCH_DIDS = 2000
+CACHE = HERE / "results" / "posts_per_session_cache.npz"
+
+# ── Thesis styling ───────────────────────────────────────────────────────
+sns.set_theme(style="whitegrid")
+plt.rcParams.update({
+    "text.usetex": False,
+    "axes.labelsize": 11,
+    "font.size": 11,
+    "legend.fontsize": 11,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+})
 
 
-def main():
+def fetch():
+    """Per-session (post count, duration s) — cache first, else DB pass."""
+    if CACHE.exists():
+        z = np.load(CACHE)
+        print(f"→ loaded {len(z['count']):,} sessions from {CACHE.name}", file=sys.stderr)
+        return z["count"], z["duration_s"]
     conn = get_connection()
     dids = [r[0] for r in _execute(conn, f"SELECT did FROM {TBL_PREFIX}sessions_users ORDER BY did")]
     print(f"{len(dids):,} users", file=sys.stderr)
 
-    counts = []  # posts per session, over ALL sessions (zeros included)
+    count_batches, dur_batches = [], []
     for i in range(0, len(dids), BATCH_DIDS):
         batch = dids[i:i + BATCH_DIDS]
         ph = ",".join(["%s"] * len(batch))
@@ -52,6 +70,7 @@ def main():
             ORDER BY did, time_us""", batch):
             posts[d].append(int(t))
 
+        cs, ds = [], []
         for did, iv in sessions.items():
             starts = [s for s, _ in iv]
             per_owner = defaultdict(int)
@@ -59,31 +78,69 @@ def main():
                 j = bisect.bisect_right(starts, t) - 1
                 o = j if j >= 0 and t <= iv[j][1] else None
                 per_owner[o] += 1
-            counts.extend(per_owner.get(k, 0) for k in range(len(iv)))
+            cs.extend(per_owner.get(k, 0) for k in range(len(iv)))
+            ds.extend((iv[j][1] - iv[j][0]) // 1_000_000 for j in range(len(iv)))
+        count_batches.append(np.fromiter(cs, np.int32))
+        dur_batches.append(np.fromiter(ds, np.int32))
         if (i // BATCH_DIDS) % 10 == 0:
             print(f"\r  {i + len(batch):,}/{len(dids):,}", end="", file=sys.stderr, flush=True)
     conn.close()
 
-    c = np.array(counts)
-    print(f"\nsessions: {len(c):,}   posts/session: "
-          f"mean {c.mean():.3f}  p50 {np.median(c):.0f}  "
-          f"p90 {np.percentile(c, 90):.0f}  p99 {np.percentile(c, 99):.0f}  "
-          f"max {c.max():.0f}", file=sys.stderr)
-    for k in range(6):
-        print(f"  {k} posts: {100 * np.mean(c == k):.2f}%", file=sys.stderr)
-    print(f"  >=6 posts: {100 * np.mean(c >= 6):.2f}%", file=sys.stderr)
+    counts = np.concatenate(count_batches)
+    durations = np.maximum(np.concatenate(dur_batches), 1)  # zero-length guard
+    np.savez_compressed(CACHE, count=counts, duration_s=durations)
+    print(f"\n→ cached per-session data to {CACHE}", file=sys.stderr)
+    return counts, durations
 
-    cap = float(np.percentile(c, 99))
+
+def main():
+    counts, durations = fetch()
+    n = len(counts)
+    print(f"\nsessions: {n:,}   posts/session: "
+          f"mean {counts.mean():.3f}  p50 {np.median(counts):.0f}  "
+          f"p90 {np.percentile(counts, 90):.0f}  p99 {np.percentile(counts, 99):.0f}  "
+          f"max {counts.max():.0f}", file=sys.stderr)
+
+    # ── Plot 1: posts per session (0..5 exact, 6+ pooled), % labels ──────
+    dist = np.bincount(counts)
+    tail6 = dist[6:].sum()
+    pct = np.concatenate([dist[:6] / n * 100, [tail6 / n * 100]])
+    for k in range(6):
+        print(f"  {k} posts: {100 * dist[k] / n:.2f}%", file=sys.stderr)
+    print(f"  >=6 posts: {100 * tail6 / n:.2f}%", file=sys.stderr)
+
     fig, ax = plt.subplots(figsize=(7, 4.5))
-    sns.histplot(c[c <= cap], bins=np.arange(0, cap + 2) - 0.5, stat="percent",
-                 color=sns.color_palette("colorblind")[0], ax=ax)
+    ax.bar(np.arange(7), pct, color=sns.color_palette("colorblind")[0], width=0.7)
+    ax.bar_label(ax.containers[0], fmt="%.1f", padding=2, fontsize=9)
+    ax.set_xticks(np.arange(7))
+    ax.set_xticklabels(["0", "1", "2", "3", "4", "5", "6+"])
     ax.set_xlabel("posts per session")
     ax.set_ylabel("share of sessions (%)")
     ax.set_title("Post creations per session")
+    ax.set_ylim(0, pct.max() * 1.15)
     fig.tight_layout()
-    out = HERE / "plots" / "posts_per_session.png"
-    fig.savefig(out, dpi=300)
-    print(f"→ {out}", file=sys.stderr)
+    p1 = HERE / "plots" / "posts_per_session.png"
+    fig.savefig(p1, dpi=300)
+
+    # ── Plot 2: posts per session-hour among active sessions ─────────────
+    active = counts > 0
+    rate = counts[active] * 3600.0 / durations[active]
+    print(f"\nactive sessions (≥1 post): {active.sum():,} ({100 * active.mean():.1f}%)  "
+          f"posts/session-hour: median {np.median(rate):.1f}  mean {rate.mean():.1f}  "
+          f"p90 {np.percentile(rate, 90):.1f}  p99 {np.percentile(rate, 99):.1f}",
+          file=sys.stderr)
+    cap = float(np.percentile(rate, 99))
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    sns.histplot(rate[rate <= cap], bins=60, stat="percent",
+                 color=sns.color_palette("colorblind")[1], ax=ax)
+    ax.set_xlim(0, cap)
+    ax.set_xlabel("posts per session-hour (sessions with ≥ 1 post)")
+    ax.set_ylabel("share of active sessions (%)")
+    ax.set_title("Post intensity among active sessions")
+    fig.tight_layout()
+    p2 = HERE / "plots" / "posts_per_hour.png"
+    fig.savefig(p2, dpi=300)
+    print(f"→ {p1}\n→ {p2}", file=sys.stderr)
 
 
 if __name__ == "__main__":
