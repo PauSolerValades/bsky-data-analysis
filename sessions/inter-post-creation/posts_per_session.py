@@ -31,7 +31,8 @@ from _core import get_connection, _execute, TBL_PREFIX
 BATCH_DIDS = 2000
 CACHE = HERE / "results" / "posts_per_session_cache.npz"
 SPU = HERE / "results" / "sessions_per_user.tsv"
-K_MAX = 20  # last category with share >= 0.01%; k>20 sums to 0.08%
+VISIBLE = 0.0005  # smallest bar share rendered (below = empty-looking)
+TAIL_MAX = 0.005  # dropped tail must stay below this
 
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
@@ -104,12 +105,18 @@ def main():
           f"max {counts.max():.0f}", file=sys.stderr)
 
     dist = np.bincount(counts)
-    pct = dist[:K_MAX + 1] / n * 100
-    print(f"  share of k>{K_MAX}: {100 * dist[K_MAX + 1:].sum() / n:.3f}%", file=sys.stderr)
-    if 100 * dist[K_MAX + 1:].sum() / n >= 0.5:
-        print("  WARNING: dropped tail >= 0.5% — raise K_MAX", file=sys.stderr)
+    d = dist / n
+    K = int(np.max(np.nonzero(d >= VISIBLE)[0])) if (d >= VISIBLE).any() else 0
+    tail = d[K + 1:].sum()
+    while tail >= TAIL_MAX and K < len(d) - 1:
+        K += 1
+        tail = d[K + 1:].sum()
+    print(f"  bars 0..{K}, dropped tail: {100 * tail:.3f}%", file=sys.stderr)
+    if tail >= TAIL_MAX:
+        print("  WARNING: dropped tail >= 0.5% — raise VISIBLE", file=sys.stderr)
 
-    x = np.arange(K_MAX + 1)
+    pct = d[:K + 1] * 100
+    x = np.arange(K + 1)
     labels = [f"{p:.1f}" if p >= 0.1 else "" for p in pct]
     fig, ax = plt.subplots(figsize=(9, 4.5))
     ax.bar(x, pct, color=sns.color_palette("colorblind")[0], width=0.7)

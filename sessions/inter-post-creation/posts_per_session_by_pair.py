@@ -28,7 +28,8 @@ REPO_SESSIONS = HERE.parent
 WIDE = REPO_SESSIONS / "distribution-fit" / "results" / "pair_params_wide.tsv"
 SPU = HERE / "results" / "sessions_per_user.tsv"
 MIN_PAIR_SHARE = 0.01
-K_MAX = 20  # last pooled category with share >= 0.01%
+VISIBLE = 0.0005  # smallest bar share rendered (below = empty-looking)
+TAIL_MAX = 0.005  # dropped tail must stay below this
 
 # ── Thesis styling ───────────────────────────────────────────────────────
 sns.set_theme(style="whitegrid")
@@ -92,19 +93,25 @@ def main():
         sel = counts[np.isin(sess_did, pos)]
         n = len(sel)
         dist = np.bincount(sel)
-        pct = dist[:K_MAX + 1] / n * 100
-        tail = dist[K_MAX + 1:].sum()
+        d = dist / n
+        K = int(np.max(np.nonzero(d >= VISIBLE)[0])) if (d >= VISIBLE).any() else 0
+        tail = d[K + 1:].sum()
+        while tail >= TAIL_MAX and K < len(d) - 1:
+            K += 1
+            tail = d[K + 1:].sum()
         print(f"\n{dur} x {gap}: {n_users:,} users, {n:,} sessions "
-              f"({100 * n / len(counts):.1f}% of all)  "
-              f"k>{K_MAX}: {100 * tail / n:.3f}%", file=sys.stderr)
-        if 100 * tail / n >= 0.5:
-            print(f"  WARNING: dropped tail >= 0.5% — raise K_MAX", file=sys.stderr)
-        for k in range(K_MAX + 1):
-            dist_rows.append((dur, gap, n_users, k, int(dist[k]), round(pct[k], 3)))
-        dist_rows.append((dur, gap, n_users, f"{K_MAX + 1}+", int(tail),
-                          round(100 * tail / n, 3)))
+              f"({100 * n / len(counts):.1f}% of all)  bars 0..{K}, "
+              f"dropped tail: {100 * tail:.3f}%", file=sys.stderr)
+        if tail >= TAIL_MAX:
+            print("  WARNING: dropped tail >= 0.5% — raise VISIBLE", file=sys.stderr)
 
-        x = np.arange(K_MAX + 1)
+        pct = d[:K + 1] * 100
+        for k in range(K + 1):
+            dist_rows.append((dur, gap, n_users, k, int(dist[k]), round(pct[k], 3)))
+        dist_rows.append((dur, gap, n_users, f"{K + 1}+", int(dist[K + 1:].sum()),
+                          round(100 * tail, 3)))
+
+        x = np.arange(K + 1)
         labels = [f"{p:.1f}" if p >= 0.1 else "" for p in pct]
         fig, ax = plt.subplots(figsize=(9, 4.5))
         ax.bar(x, pct, color=sns.color_palette("colorblind")[0], width=0.7)
