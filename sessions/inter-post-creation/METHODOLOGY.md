@@ -1,5 +1,19 @@
 # Inter-post creation time — methodology
 
+## Layout
+
+- `dump.py`, `run_all.sh`, `data/` — shared data pipeline (per-user gap chunks).
+- `1-pair-histograms/` — posts per session/minute, split by (duration, gap) pair.
+- `2-parametric-fits/` — per-user and pooled parametric fits + why they fail
+  (n too small, ΔAIC margins, AD collapse; see `POOLED_FIT.md` there).
+- `3-ecdf/` — the chosen route: pooled and per-pair within-session ECDFs
+  (txt exports + plots, no global overlay).
+- `4-first-post-offset/` — next step: first-post offset vs the within-gap law.
+- `posts-powerlaw/` — posts-per-user power-law analysis (previous work).
+- `experiments/` — superseded "avoid the ECDF" attempts (permutation test,
+  truncation validation, per-global-family ECDFs); kept for the record, see
+  `PERMUTATION_TEST.md` there.
+
 Per-user **inter-post gaps** (time between consecutive `post_top`/`post_reply`
 events), in two columns:
 
@@ -26,7 +40,7 @@ in the fitter). No −300s shift: within gaps are NOT left-truncated at eps
 
 Same 8-candidate MLE battery as `distribution-fit` (natural support, no free
 loc, closed-form KS/CvM/AD, AIC selection), run with
-`data_dir=inter-post-creation/data out_dir=inter-post-creation/results`.
+`data_dir=inter-post-creation/data out_dir=inter-post-creation/2-parametric-fits/results`.
 `build_best.py` = step2 analog, one change: the n_obs ≥ 30 filter is applied
 **per column independently** (requiring both would restrict global to heavy
 posters and bias its composition).
@@ -151,10 +165,10 @@ rule is free.
 **Exports** (`export_ecdf.py`, `export_ecdf_by_family.py`; one gap per line,
 seconds, plain text like the other `params/*.txt`):
 
-- `results/within_interpost_ecdf.txt` — pooled, 1M uniform subsample of all
+- `3-ecdf/ecdfs/within_interpost_ecdf.txt` — pooled, 1M uniform subsample of all
   11.1M within gaps (p25 33s / p50 86s / p90 281s / p99 663s).
-- `results/within_ecdf__<family>.txt` — per-GLOBAL-family ECDFs (within gaps
-  pooled over users whose global fit has n_obs ≥ 30; ≤250k lines each).
+- per-GLOBAL-family ECDFs (within gaps pooled over users whose global fit has
+  n_obs ≥ 30; ≤250k lines each) — superseded, see `experiments/`.
 
 **Per-family heterogeneity (Finding 2 follow-up).** Within cadence differs by
 the user's global family — median within gap: lognorm 118s, power_tail 76s,
@@ -189,8 +203,9 @@ proves too coarse: K archetype ECDFs binned by user mean within gap.
 | `results/family_summary.tsv` | composition per col (all / n≥30) |
 | `results/pair_summary.tsv` | within × global family crosstab (both ≥30) |
 | `plots/independence_ecdf.png` | real vs replay within ECDF overlay |
-| `results/within_interpost_ecdf.txt` | pooled within ECDF for the sim |
-| `results/within_ecdf__{family}.txt` | per-global-family within ECDFs |
+| `3-ecdf/ecdfs/within_interpost_ecdf.txt` | pooled within ECDF for the sim |
+| `3-ecdf/ecdfs/within_ecdf__{dur}__{gap}.txt` | per-pair within ECDFs |
+| `3-ecdf/ecdfs/offset_ecdf__{dur}__{gap}.txt` | per-pair first-post offset ECDFs |
 
 ## Caveats
 
