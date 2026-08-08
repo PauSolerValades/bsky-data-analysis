@@ -134,7 +134,7 @@ def main():
         fig, ax = plt.subplots(figsize=(7, 4.5))
         xs = np.sort(o)
         ax.plot(xs, np.arange(1, len(xs) + 1) / len(xs), color="#0072B2", linewidth=1.2)
-        ax.set_xscale("log")
+        ax.set_xscale("symlog", linthresh=1)  # ~half of offsets are exactly 0; plain log drops them
         ax.set_xlabel("first-post offset (s)")
         ax.set_ylabel("ECDF")
         ax.set_title(f"First-post offset ECDF — {DISPLAY[dur]} $\\times$ "
