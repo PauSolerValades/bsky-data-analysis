@@ -25,7 +25,7 @@ sys.path.insert(0, str(HERE.parents[1] / "table_creation"))
 from _core import get_connection, _execute, TBL_PREFIX
 
 BATCH_DIDS = 2000
-MAX_S = 60
+MAX_S = 15
 
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
@@ -84,7 +84,7 @@ def main():
         "mean": off.mean(),
         "p90": pct[90],
         "p99": pct[99],
-        "pct_within_60s": 100 * (off <= MAX_S).mean(),
+        f"pct_within_{MAX_S}s": 100 * (off <= MAX_S).mean(),
     }])
     out_tsv = HERE / "post_offsets_stats.tsv"
     stats.round(2).to_csv(out_tsv, sep="\t", index=False)
