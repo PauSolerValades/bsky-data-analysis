@@ -25,7 +25,7 @@ import polars as pl
 HERE = Path(__file__).resolve().parent
 R = HERE / "results"
 
-POWER_TAIL = {"pareto", "lomax", "genpareto"}
+POWER_TAIL = {"pareto_i", "lomax", "genpareto"}
 MIN_OBS = 30  # per column; user must clear it on BOTH duration and gap
 
 

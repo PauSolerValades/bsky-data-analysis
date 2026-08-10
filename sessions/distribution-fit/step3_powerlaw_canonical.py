@@ -3,7 +3,13 @@
 Conversions (exact reparametrizations):
   genpareto (evd gpd, loc=0):   xi=shape, sigma=scale, mu=0
   lomax (actuar pareto2):       xi=1/shape, sigma=scale/shape, mu=0
-  pareto (actuar pareto):       xi=1/shape, sigma=scale/shape, mu=scale
+  pareto_i (actuar pareto1):    xi=1/shape, sigma=scale/shape, mu=scale
+
+pareto_i is the Single Parameter Pareto / Pareto I: support x > theta,
+so its canonical GPD has mu = theta = scale. (actuar::pareto is a DIFFERENT
+function — the mu=0 Pareto II / Lomax — which is why the old battery's
+"pareto" entry converted like lomax. With the fit now using pareto1, the
+support-bound conversion is correct.)
 
 Output: results/power_tail_canonical.tsv  (did, col, xi, sigma, mu, source)
 
@@ -38,7 +44,10 @@ def main():
                   wide["shape"], 1.0 / wide["shape"])
     sigma = np.where(wide["distribution"] == "genpareto",
                      wide["scale"], wide["scale"] / wide["shape"])
-    mu = np.where(wide["distribution"] == "pareto", wide["scale"], 0.0)
+    # genpareto loc=0; lomax (pareto2, min=0) and pareto_i (pareto1) both have
+    # support bound at the scale, but lomax's is a pure location=0 form while
+    # pareto_i's support genuinely starts at theta=scale -> mu=scale.
+    mu = np.where(wide["distribution"] == "pareto_i", wide["scale"], 0.0)
 
     out = pl.DataFrame({
         "did": wide["did"], "col": wide["col"],
@@ -53,7 +62,7 @@ def main():
     worst = 0.0
     for i in idx:
         dist, shape, scale = wide["distribution"][i], wide["shape"][i], wide["scale"][i]
-        x0 = 1.0 if dist != "pareto" else scale  # pareto support starts at scale
+        x0 = 1.0
         xs = x0 + qs * 10 * scale
         if dist == "genpareto":
             F_src = 1 - np.maximum(1 + shape * xs / scale, 1e-300) ** (-1 / shape)
@@ -61,7 +70,7 @@ def main():
         elif dist == "lomax":
             F_src = 1 - (1 + xs / scale) ** (-shape)
             xig, sig, mug = 1 / shape, scale / shape, 0.0
-        else:
+        else:  # pareto_i: support starts at scale
             F_src = np.where(xs >= scale, 1 - (xs / scale) ** (-shape), 0.0)
             xig, sig, mug = 1 / shape, scale / shape, scale
         F_gpd = 1 - np.maximum(1 + xig * (xs - mug) / sig, 1e-300) ** (-1 / xig)

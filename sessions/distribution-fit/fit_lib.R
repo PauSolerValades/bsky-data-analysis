@@ -1,7 +1,8 @@
 ## Shared fitting library — per-user distribution fits with fitdistrplus.
 ##
 ## Candidates (8): expon, gamma, lognorm, weibull_min, fisk (log-logistic),
-## pareto, lomax (Pareto II), genpareto (Pickands GPD, loc fixed at 0).
+## pareto_i (Pareto I, support x>theta), lomax (Pareto II, support x>0),
+## genpareto (Pickands GPD, loc fixed at 0).
 ##
 ## GOF: gofstat KS / Cramer-von Mises / Anderson-Darling — proper statistics
 ## against the fitted CDF (no Monte Carlo, no distfit pdf-ordinate nonsense).
@@ -21,7 +22,7 @@ DISTS <- list(
   weibull_min = list(distr = "weibull"),
   fisk        = list(distr = "llogis",
                      start = function(x) list(shape = 1, scale = median(x))),
-  pareto      = list(distr = "pareto",
+  pareto_i    = list(distr = "pareto1",
                      start = function(x) list(shape = 1.5, scale = min(x) * 0.9)),
   lomax       = list(distr = "pareto2",
                      start = function(x) list(shape = 2, scale = mean(x)),
