@@ -8,10 +8,10 @@ symmetrically about the centre. No 3-col gridspec, no empty middle slot.
 
 Power_tail sides (pareto/lomax/genpareto are reparametrizations of one another)
 are shown on a common canonical GPD axis (xi, sigma) from
-power_tail_canonical.tsv, so all power_tail users plot the same semantics.
+pareto_canonical.tsv, so all pareto users plot the same semantics.
 
-The 24 relevant family pairs = top 24 by user count, matching pair_family_bars.py
-(drops the bottom 8 pairs, 17 users, <0.01%). Titles state the pair explicitly;
+All 22 observed family pairs are plotted (TOP=24 > 22, so nothing is dropped).
+Titles state the pair explicitly;
 filenames are pair + side. Log-x when values are all-positive and span > 50x.
 
 Usage:
@@ -19,6 +19,7 @@ Usage:
 """
 
 import csv
+import shutil
 from collections import defaultdict
 from pathlib import Path
 
@@ -28,7 +29,7 @@ import seaborn as sns
 
 sns.set_theme(style="whitegrid")
 plt.rcParams.update({
-    "text.usetex": True,
+    "text.usetex": shutil.which("latex") is not None,  # ponytail: no LaTeX on this machine; AGENTS.md style where available
     "axes.labelsize": 11,
     "font.size": 11,
     "xtick.labelsize": 10,
@@ -37,7 +38,7 @@ plt.rcParams.update({
 
 HERE = Path(__file__).resolve().parent
 WIDE = HERE / "results/pair_params_wide.tsv"
-CANON = HERE / "results/power_tail_canonical.tsv"
+CANON = HERE / "results/pareto_canonical.tsv"
 OUT = HERE / "plots/pair_params"
 TOP = 24  # drop the bottom 8 tail pairs, matching pair_family_bars.py
 
@@ -49,7 +50,7 @@ SYMBOLS = {"xi": "\\xi", "sigma": "\\sigma",
 COLORS = {"dur": "steelblue", "gap": "darkorange"}
 LABELS = {"dur": "sessions", "gap": "gaps"}
 SIDE_COL = {"dur": "duration", "gap": "gap"}
-POWER_TAIL = "power_tail"
+POWER_TAIL = "pareto"
 
 # (did, col) -> (xi, sigma) canonical GPD, from step3
 canon = {}
@@ -57,7 +58,7 @@ with open(CANON, newline="") as f:
     for row in csv.DictReader(f, delimiter="\t"):
         canon[(row["did"], row["col"])] = (float(row["xi"]), float(row["sigma"]))
 
-# (family_pair, side, param) -> values; param in {"xi","sigma"} for power_tail
+# (family_pair, side, param) -> values; param in {"xi","sigma"} for pareto
 vals = defaultdict(list)
 n_users = defaultdict(int)
 with open(WIDE, newline="") as f:

@@ -19,7 +19,7 @@ HERE = __file__.rsplit("/", 1)[0]
 d = np.load(f"{HERE}/results/pooled_fit.npz", allow_pickle=True)
 x, names, params = d["x"], d["names"], d["params"]
 DISTS = {"gamma": stats.gamma, "weibull_min": stats.weibull_min,
-         "lomax": stats.lomax, "fisk": stats.fisk, "lognorm": stats.lognorm}
+         "lomax": stats.lomax, "lognorm": stats.lognorm}
 
 xs = np.sort(x)
 ecdf = np.arange(1, len(xs) + 1) / len(xs)

@@ -17,12 +17,12 @@ Two groupings tried:
 
 ## Procedure
 
-`pooled_fit.py` fits the **same 8-candidate MLE battery** as
-`distribution-fit/fit_lib.R` (expon, gamma, lognorm, weibull_min, fisk,
-pareto, lomax, genpareto; natural support, no free loc) with **closed-form
+`pooled_fit.py` fits the **same 7-candidate MLE battery** as
+`distribution-fit/fit_lib.R` (expon, gamma, lognorm, weibull_min,
+pareto_i, lomax, genpareto; natural support, no free loc) with **closed-form
 KS / CvM / AD** (identical formulas to `fit_lib.R::gof_stats`) and ranks by
-AIC. Implementation is scipy instead of fitdistrplus; fisk = log-logistic,
-pareto = Pareto I, lomax = Pareto II with min 0, genpareto loc fixed at 0.
+AIC. Implementation is scipy instead of fitdistrplus; pareto_i = Pareto I,
+lomax = Pareto II with min 0, genpareto loc fixed at 0.
 
     uv run inter-post-creation/pooled_fit.py [file ...]
 
@@ -59,20 +59,20 @@ and AD-best per pair (AD of the AIC winner in bold when catastrophic):
 | pair (dur × gap) | AIC-best | ΔAIC to 2nd | AD of AIC-best | AD-best family (AD) |
 |---|---|---|---|---|
 | expon × lognorm | gamma | 5,745 | 224 | gamma (224) |
-| expon × power_tail | weibull_min | 640 | 277 | weibull_min (277) |
+| expon × pareto | weibull_min | 640 | 277 | weibull_min (277) |
 | expon × weibull_min | gamma | 4,825 | 264 | gamma (264) |
 | gamma × lognorm | gamma | 206 | 211 | weibull_min (161) |
-| gamma × power_tail | weibull_min | 1,487 | 626 | weibull_min (626) |
+| gamma × pareto | weibull_min | 1,487 | 626 | weibull_min (626) |
 | gamma × weibull_min | weibull_min | 358 | 213 | weibull_min (213) |
 | lognorm × lognorm | expon | 741 | **13,628** | weibull_min (255) |
-| lognorm × power_tail | expon | 2,944 | **93,414** | gamma (844) |
+| lognorm × pareto | expon | 2,944 | **93,414** | gamma (844) |
 | lognorm × weibull_min | expon | 2,305 | **20,143** | gamma (210) |
-| power_tail × lognorm | fisk | 2,788 | 724 | gamma (716) |
-| power_tail × power_tail | expon | 2,151 | **15,957** | gamma (274) |
-| power_tail × weibull_min | expon | 413 | **22,156** | fisk (692) |
+| pareto × lognorm | fisk | 2,788 | 724 | gamma (716) |
+| pareto × pareto | expon | 2,151 | **15,957** | gamma (274) |
+| pareto × weibull_min | expon | 413 | **22,156** | fisk (692) |
 | weibull_min × fisk | expon | 1,552 | **13,902** | gamma (266) |
 | weibull_min × lognorm | lognorm | 747 | 819 | fisk (745) |
-| weibull_min × power_tail | expon | 980 | **8,677** | gamma (344) |
+| weibull_min × pareto | expon | 980 | **8,677** | gamma (344) |
 | weibull_min × weibull_min | expon | 35 (coin-flip vs lomax) | **67,685** | lomax (599) |
 
 Full 8-family detail for any pair:

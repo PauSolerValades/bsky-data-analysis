@@ -16,7 +16,7 @@ suppressMessages({library(arrow); library(data.table)})
 source(file.path(dirname(sub("--file=", "", grep("--file=", commandArgs(FALSE), value = TRUE)[1])), "fit_lib.R"))
 
 df <- as.data.table(read_parquet(sprintf("%s/chunk%d.parquet", data_dir, chunk)))
-df[col == "gap", value := value - GAP_SHIFT]   # known left-truncation at eps
+df[col == "gap", value := value - GAP_SHIFT]   # gaps > eps by construction; shift to support (0, Inf)
 df <- df[value > 0]
 
 units <- split(df$value, paste(df$did, df$col, sep = "\r"))

@@ -1,17 +1,19 @@
 ## Shared fitting library — per-user distribution fits with fitdistrplus.
 ##
-## Candidates (8): expon, gamma, lognorm, weibull_min, fisk (log-logistic),
-## pareto_i (Pareto I, support x>theta), lomax (Pareto II, support x>0),
+## Candidates (7): expon, gamma, lognorm, weibull_min,
+## pareto_i (Pareto I, threshold fixed at min(x)), lomax (Pareto II, support x>0),
 ## genpareto (Pickands GPD, loc fixed at 0).
 ##
 ## GOF: gofstat KS / Cramer-von Mises / Anderson-Darling — proper statistics
 ## against the fitted CDF (no Monte Carlo, no distfit pdf-ordinate nonsense).
 ## Selection: AIC (complexity-penalized); AD as heavy-tail GOF descriptor.
-## Gaps are shifted by -eps (300s) BEFORE reaching here (known truncation).
+## Gaps are shifted by -eps (300s) BEFORE reaching here (gaps < eps cannot exist:
+## DBSCAN absorbs events < eps apart into the same session — this is a shift, not
+## a truncation correction; there is no censored mass below eps).
 
 suppressMessages({
   library(fitdistrplus)
-  library(actuar)   # llogis (fisk), pareto, pareto2 (lomax)
+  library(actuar)   # pareto1 (pareto_i), pareto2 (lomax)
   library(evd)      # gpd (Pickands genpareto)
 })
 
@@ -20,10 +22,9 @@ DISTS <- list(
   gamma       = list(distr = "gamma"),
   lognorm     = list(distr = "lnorm"),
   weibull_min = list(distr = "weibull"),
-  fisk        = list(distr = "llogis",
-                     start = function(x) list(shape = 1, scale = median(x))),
   pareto_i    = list(distr = "pareto1",
-                     start = function(x) list(shape = 1.5, scale = min(x) * 0.9)),
+                     start = function(x) list(shape = 1.5),
+                     fix   = function(x) list(min = min(x))),  # Pareto I: threshold MLE = min(x) (boundary); free-min fit is singular (CRAN: dpareto1(x, shape, min))
   lomax       = list(distr = "pareto2",
                      start = function(x) list(shape = 2, scale = mean(x)),
                      fix   = function(x) list(min = 0)),
@@ -68,20 +69,25 @@ fit_one <- function(x) {
   if (length(fits) == 0) return(NULL)
 
   stats <- t(sapply(fits, function(f) gof_stats(x, f)))
+  ## pareto_i's threshold min=min(x) is the boundary MLE, not a known constant:
+  ## count it as an estimated parameter (+1 df in AIC/BIC).
+  extra_k <- as.numeric(names(fits) == "pareto_i")
   gof_df <- data.frame(
     distribution = names(fits),
     n_obs = n,
     loglik = sapply(fits, function(f) f$loglik),
-    aic = sapply(fits, AIC),
-    bic = sapply(fits, BIC),
+    aic = sapply(fits, AIC) + 2 * extra_k,
+    bic = sapply(fits, BIC) + log(n) * extra_k,
     ks = stats[, "ks"], cvm = stats[, "cvm"], ad = stats[, "ad"],
     row.names = NULL
   )
 
   params_df <- do.call(rbind, lapply(names(fits), function(nm) {
     cf <- coef(fits[[nm]])
-    data.frame(distribution = nm, param = names(cf),
-               value = as.numeric(cf), row.names = NULL)
+    fx <- fits[[nm]]$fix.arg  # fixed params (e.g. pareto_i's min) also emitted
+    data.frame(distribution = nm,
+               param = c(names(cf), names(fx)),
+               value = as.numeric(c(cf, fx)), row.names = NULL)
   }))
 
   list(gof = gof_df, params = params_df)

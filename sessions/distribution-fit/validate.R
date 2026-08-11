@@ -12,8 +12,7 @@ generators <- list(
   gamma       = function(n) rgamma(n, shape = 2, rate = 0.01),
   lognorm     = function(n) rlnorm(n, meanlog = 4, sdlog = 1),
   weibull_min = function(n) rweibull(n, shape = 1.5, scale = 200),
-  fisk        = function(n) rllogis(n, shape = 2, scale = 100),
-  pareto      = function(n) rpareto(n, shape = 3, scale = 50),
+  pareto_i    = function(n) rpareto1(n, shape = 3, min = 50),  # Pareto I: support x>min (CRAN: rpareto1(n, shape, min))
   lomax       = function(n) rpareto2(n, min = 0, shape = 3, scale = 100),
   genpareto   = function(n) rgpd(n, loc = 0, scale = 100, shape = 0.3)
 )

@@ -36,7 +36,7 @@ plt.rcParams.update({
 
 DEFAULT_OUT = Path(__file__).resolve().parent / "results"
 
-TIME_DISTS = ['expon', 'gamma', 'lognorm', 'weibull_min', 'fisk',
+TIME_DISTS = ['expon', 'gamma', 'lognorm', 'weibull_min',
               'pareto', 'lomax', 'genpareto']
 
 

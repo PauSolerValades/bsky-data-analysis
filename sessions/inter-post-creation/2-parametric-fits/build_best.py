@@ -24,12 +24,12 @@ import polars as pl
 HERE = Path(__file__).resolve().parent
 R = HERE / "results"
 
-POWER_TAIL = {"pareto", "lomax", "genpareto"}
+POWER_TAIL = {"pareto_i", "lomax", "genpareto"}
 MIN_OBS = 30
 
 
 def family(d):
-    return "power_tail" if d in POWER_TAIL else d
+    return "pareto" if d in POWER_TAIL else d
 
 
 def main():

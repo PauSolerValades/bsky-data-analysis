@@ -17,15 +17,14 @@ args <- commandArgs(trailingOnly = TRUE)
 cores <- if (length(args) >= 1) as.integer(args[1]) else 64
 
 PT <- c("pareto", "lomax", "genpareto")
-to_family <- function(d) ifelse(d %in% PT, "power_tail", d)
+to_family <- function(d) ifelse(d %in% PT, "pareto", d)
 
 GENS <- list(
   expon       = function(n) rexp(n, rate = 1 / 100),
   gamma       = function(n) rgamma(n, shape = 2, rate = 1 / 50),
   lognorm     = function(n) rlnorm(n, meanlog = 4.5, sdlog = 1),
   weibull_min = function(n) rweibull(n, shape = 0.7, scale = 100),
-  fisk        = function(n) rllogis(n, shape = 2, scale = 100),
-  power_tail  = function(n) rgpd(n, loc = 0, scale = 100, shape = 0.5)
+  pareto  = function(n) rgpd(n, loc = 0, scale = 100, shape = 0.5)
 )
 CEILINGS <- c(60, 120, 300, 900, 3600)
 NS <- c(30, 100)
@@ -57,7 +56,7 @@ cat(sprintf("(%.0fs for %d fits)\n", difftime(Sys.time(), t0, units = "secs"), n
 
 suppressMessages(library(data.table))
 dt <- as.data.table(grid)
-fams <- c("expon", "gamma", "lognorm", "weibull_min", "fisk", "power_tail")
+fams <- c("expon", "gamma", "lognorm", "weibull_min", "pareto")
 
 ## Tee the whole results block to a txt (committed artifact)
 sink("inter-post-creation/experiments/results/truncation_confusion.txt", split = TRUE)

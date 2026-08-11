@@ -20,11 +20,11 @@ CB_LINE <- "#D55E00"   # Okabe-Ito vermillion
 
 best   <- fread("distribution-fit/results/best_per_user.tsv")[n_obs >= MIN_OBS]
 params <- fread("distribution-fit/results/best_params.tsv")
-canon  <- fread("distribution-fit/results/power_tail_canonical.tsv")
+canon  <- fread("distribution-fit/results/pareto_canonical.tsv")
 fits   <- fread("distribution-fit/results/param_distributions.tsv")
 
 ## Rebuild series (same logic as step4)
-pt <- merge(best[family == "power_tail", .(did, col)], canon, by = c("did", "col"))
+pt <- merge(best[family == "pareto", .(did, col)], canon, by = c("did", "col"))
 bp <- merge(best[, .(did, col, distribution)],
             params[, .(did, col, distribution, param, value)],
             by = c("did", "col", "distribution"))
@@ -33,12 +33,12 @@ series <- list()
 add <- function(col, family, param, values)
   series[[length(series) + 1L]] <<- list(col=col, family=family, param=param, values=values)
 for (cc in c("duration", "gap")) {
-  for (fam in c("expon","gamma","lognorm","weibull_min","fisk")) {
+  for (fam in c("expon","gamma","lognorm","weibull_min")) {
     w <- dcast(bp[col == cc & distribution == fam], did ~ param, value.var = "value")
     if (nrow(w) > 1) for (p in setdiff(names(w), "did")) add(cc, fam, p, w[[p]])
   }
   ptc <- pt[col == cc]
-  if (nrow(ptc) > 0) { add(cc, "power_tail", "xi", ptc$xi); add(cc, "power_tail", "sigma", ptc$sigma) }
+  if (nrow(ptc) > 0) { add(cc, "pareto", "xi", ptc$xi); add(cc, "pareto", "sigma", ptc$sigma) }
 }
 
 dpdf <- function(dist, pars, x) switch(dist,

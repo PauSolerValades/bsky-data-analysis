@@ -19,15 +19,14 @@ from scipy import stats
 
 HERE = Path(__file__).resolve().parent
 
-# same candidates as fit_lib.R (fisk = log-logistic = scipy fisk;
-# pareto = Pareto I, support [scale, inf); lomax = Pareto II with min 0)
+# same candidates as fit_lib.R (pareto_i = Pareto I = scipy pareto, support [scale, inf);
+# lomax = Pareto II with min 0; genpareto = GPD with loc 0)
 DISTS = {
     "expon": (stats.expon, {}),
     "gamma": (stats.gamma, {"floc": 0}),
     "lognorm": (stats.lognorm, {"floc": 0}),
     "weibull_min": (stats.weibull_min, {"floc": 0}),
-    "fisk": (stats.fisk, {"floc": 0}),
-    "pareto": (stats.pareto, {"floc": 0}),
+    "pareto_i": (stats.pareto, {"floc": 0}),
     "lomax": (stats.lomax, {"floc": 0}),
     "genpareto": (stats.genpareto, {"floc": 0}),
 }

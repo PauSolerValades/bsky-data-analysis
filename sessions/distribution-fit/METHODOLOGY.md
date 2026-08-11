@@ -7,7 +7,7 @@ gaps** from `pau_db.sessions` (DBSCAN, eps = 300s, min_samples = 2; see
 ## Phase 1 — Python / distfit (abandoned)
 
 Initial approach: `distfit` per user, candidates
-`expon, gamma, lognorm, weibull_min, fisk, pareto, lomax, genpareto`, scored with
+`expon, gamma, lognorm, weibull_min, pareto, lomax, genpareto`, scored with
 `wasserstein` and `goodness_of_fit`. Abandoned after discovering three
 methodological defects:
 
@@ -34,12 +34,13 @@ JSS 64(4)), `actuar`, `evd`, `arrow`, `data.table`.
 
 **Data prep** (`dump_data.py`, Python → parquet, 10 strided user chunks):
 durations = non-singleton sessions only (`duration_s > 0`, micro sessions
-discarded); gaps = consecutive `session_start − session_end`; gaps are
-**left-truncated at eps by construction**, so they are fitted after a known
-shift of −300s.
+discarded); gaps = consecutive `session_start − session_end`; gaps below eps
+**cannot exist by construction** (DBSCAN absorbs events < eps apart into the
+same session — there is no censored mass below eps), so they are fitted after a
+known shift of −300s. This is a location shift, not a truncation correction.
 
 **Per-user fitting** (`fit_lib.R`, `fit_chunk.R`): for each user × column,
-`fitdist` (MLE, natural support, no free loc) over 8 candidates:
+`fitdist` (MLE, natural support, no free loc) over 7 candidates:
 
 | canonical name | R distribution | package |
 |---|---|---|
@@ -47,10 +48,17 @@ shift of −300s.
 | gamma | `gamma` | stats |
 | lognorm | `lnorm` | stats |
 | weibull_min | `weibull` | stats |
-| fisk | `llogis` | actuar |
-| pareto | `pareto` | actuar |
+| pareto_i | `pareto1`, threshold fixed at `min(x)` | actuar |
 | lomax | `pareto2` (min = 0) | actuar |
 | genpareto | `gpd` (loc = 0) | evd |
+
+Pareto I's threshold is a support-bound parameter whose free MLE collapses to
+the boundary `min(x)` (singular Hessian, CRAN-verified API: `dpareto1(x, shape,
+min)`). It is therefore fixed at `min(x)` and only the shape is MLE'd — the
+textbook estimator for the single-parameter Pareto. Since `min(x)` is the
+boundary MLE and not a known constant, AIC/BIC count it as an estimated
+parameter (+1 df). (fisk / log-logistic was
+dropped from the battery.)
 
 GOF statistics (KS, Cramér–von Mises, Anderson–Darling) computed in closed form
 against the fitted CDF — `gofstat` errors on small n due to internal chi-square
@@ -63,13 +71,18 @@ see below). Parallelism: `mclapply`, 64 cores; ~3 min per 212k-user chunk.
 ## Post-processing
 
 - **Step 2** (`step2_build_best.py`): AIC-best distribution per (user, column).
-  pareto/lomax/genpareto grouped as family **`power_tail`** — Lomax ≡
+  pareto_i/lomax/genpareto grouped as family **`pareto`** — Lomax ≡
   reparametrized GPD, Pareto-I is its boundary case, so AIC's sibling choice
   is partly arbitrary (simulation confirmed).
-- **Step 3** (`step3_powerlaw_canonical.py`): every power_tail win converted to
-  **canonical GPD(ξ, σ, μ)**: lomax → ξ=1/α, σ=λ/α; pareto → ξ=1/α, σ=xₘ/α,
-  μ=xₘ; genpareto unchanged. Conversion verified to |ΔCDF| ≤ 1e-16. One shared
-  parameter space for the whole family.
+- **Pairing** (`pair_params.py`): the step the thesis samples from. Selects the
+  AIC winner per (user, column) from the raw fits, converts every power-tail
+  win to **canonical GPD(ξ, σ, μ)** under the single family **`pareto`**
+  (lomax → ξ=1/α, σ=λ/α, μ=0; pareto_i → ξ=1/α, σ=xₘ/α, μ=xₘ; genpareto
+  unchanged), and emits one wide row per user:
+  `params__{col1}__{col2}.tsv` with one column per parameter
+  (shape, scale, rate, meanlog, sdlog, xi, sigma, mu), blanks where a family
+  has no such parameter. Conversion verified |ΔCDF| ≤ 1e-16 and against the
+  old canonical table on real fits.
 - **Step 4** (`step4_fit_parameters.R`): distributions fitted to the
   across-user parameter values (trustworthy subset **n_obs ≥ 30**), AIC-selected
   among exp/gamma/lnorm/weibull (+norm for unbounded), plus Spearman
@@ -87,7 +100,7 @@ see below). Parallelism: `mclapply`, 64 cores; ~3 min per 212k-user chunk.
 | `results/params__chunk{0-9}.tsv` | MLE parameters of every candidate |
 | `results/best_per_user.tsv` | AIC-best distribution + family per user |
 | `results/best_params.tsv` | parameters of the winning distribution |
-| `results/power_tail_canonical.tsv` | GPD(ξ, σ, μ) per power_tail user |
+| `results/pareto_canonical.tsv` | GPD(ξ, σ, μ) per pareto user |
 | `results/param_distributions.tsv` | across-user parameter meta-fits |
 | `results/param_correlations.tsv` | parameter-pair Spearman ρ |
 | `plots/param__*.png` | 22 parameter histograms + overlay |
@@ -98,5 +111,5 @@ see below). Parallelism: `mclapply`, 64 cores; ~3 min per 212k-user chunk.
 2. Model selection at n_obs < 30 is unreliable; meta-fits use n_obs ≥ 30.
 3. The ξ meta-distribution is **multimodal** (bounded / heavy / very-heavy
    subpopulations) — the normal overlay is a poor model; sample ξ empirically.
-4. Within-family parameters are strongly correlated (e.g., gap power_tail
+4. Within-family parameters are strongly correlated (e.g., gap pareto
    ξ–σ ρ = −0.86): sample joint empirical parameter rows, not marginals.

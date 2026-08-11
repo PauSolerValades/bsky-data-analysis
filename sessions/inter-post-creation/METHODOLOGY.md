@@ -38,7 +38,7 @@ in the fitter). No −300s shift: within gaps are NOT left-truncated at eps
 
 ## Fitting (`distribution-fit/fit_chunk.R`, unmodified methodology)
 
-Same 8-candidate MLE battery as `distribution-fit` (natural support, no free
+Same 7-candidate MLE battery as `distribution-fit` (fisk dropped; natural support, no free
 loc, closed-form KS/CvM/AD, AIC selection), run with
 `data_dir=inter-post-creation/data out_dir=inter-post-creation/2-parametric-fits/results`.
 `build_best.py` = step2 analog, one change: the n_obs ≥ 30 filter is applied
@@ -51,8 +51,7 @@ posters and bias its composition).
 |---|---|---|
 | lognorm | 46.3% | 47.2% |
 | gamma | 22.7% | 0.06% |
-| fisk | 10.1% | 8.3% |
-| power_tail | 9.4% | **23.8%** |
+| pareto | 9.4% | **23.8%** |
 | weibull_min | 9.3% | 20.7% |
 | expon | 2.2% | ~0% |
 
@@ -67,13 +66,13 @@ window the light-tailed candidates are likelihood-near-identical:
 - **ΔAIC < 2** (coin-flip zone) for **56.9%** of within users (median margin
   1.6); nearly all ambiguity is cross-family. AIC-best == AD-best only 18.3%
   (25% at family level). Global is healthier: 48% ΔAIC<2 but only 24.8%
-  cross-family (the rest is power_tail sibling shuffling, absorbed by the
+  cross-family (the rest is pareto sibling shuffling, absorbed by the
   family grouping).
 - **`validate_truncated.R`** mirrors the observation process: simulate each
   family, keep draws below a session-like ceiling T, fit with the same
   untruncated candidates. At T ≤ 300s light-tailed data is AIC-classified as
-  power_tail **40–52%** of the time — truncation *manufactures* power_tail
-  wins (this is the within "all users" column's 61.7% power_tail artifact).
+  pareto **40–52%** of the time — truncation *manufactures* pareto
+  wins (this is the within "all users" column's 61.7% pareto artifact).
   Light families only become distinguishable at T ≥ 900s; within gaps have
   p90 = 281s, so essentially the whole column lives in the unidentifiable
   regime.
@@ -171,8 +170,8 @@ seconds, plain text like the other `params/*.txt`):
   n_obs ≥ 30; ≤250k lines each) — superseded, see `experiments/`.
 
 **Per-family heterogeneity (Finding 2 follow-up).** Within cadence differs by
-the user's global family — median within gap: lognorm 118s, power_tail 76s,
-weibull 71s, fisk 60s (~2× spread; heavy-tailed-global users are burstier
+the user's global family — median within gap: lognorm 118s, pareto 76s,
+weibull 71s (~2× spread; heavy-tailed-global users are burstier
 when online, lognorm users steady-and-slower). Hence the per-family exports:
 the sim assigns each user a global family, then loads the matching within
 ECDF. gamma (36 users) and expon (4 users) pools are too thin to sample —
@@ -223,4 +222,4 @@ proves too coarse: K archetype ECDFs binned by user mean within gap.
 4. Exact same-μs post bursts (124k) are excluded; sub-1s gaps otherwise
    nonexistent.
 5. Global fits inherit `distribution-fit` caveats (n=1 units unfittable,
-   power_tail sibling arbitrariness absorbed by the family grouping).
+   pareto sibling arbitrariness absorbed by the family grouping).

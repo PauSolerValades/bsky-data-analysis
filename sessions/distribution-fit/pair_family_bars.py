@@ -31,12 +31,11 @@ TSV = HERE / "results" / "pair_params_wide.tsv"
 OUT = HERE / "results" / "pair_family_bars.png"
 
 FAMILIES = {
-    "power_tail": "Power-law",
+    "pareto": "Power-law",
     "weibull_min": "Weibull",
     "lognorm": "Lognorm",
     "gamma": "Gamma",
     "expon": "Exp",
-    "fisk": "Fisk",
 }
 
 

@@ -46,8 +46,8 @@ plt.rcParams.update({
     "ytick.labelsize": 10,
 })
 
-DISPLAY = {"power_tail": "Power-law", "weibull_min": "Weibull", "lognorm": "Lognorm",
-           "gamma": "Gamma", "expon": "Exp", "fisk": "Fisk"}
+DISPLAY = {"pareto": "Power-law", "weibull_min": "Weibull", "lognorm": "Lognorm",
+           "gamma": "Gamma", "expon": "Exp"}
 
 
 def write_sample(path, v, rng):

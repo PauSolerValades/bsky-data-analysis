@@ -43,7 +43,7 @@ with open(TSV, newline="") as f:
 print(f"users kept (>={MIN_SESSIONS} dur and gap obs): {users:,}  (dropped {dropped:,})")
 print()
 
-order = ["power_tail", "weibull_min", "lognorm", "gamma", "expon", "fisk"]
+order = ["pareto", "weibull_min", "lognorm", "gamma", "expon"]
 
 # Marginal totals
 dur_marg, gap_marg = Counter(), Counter()

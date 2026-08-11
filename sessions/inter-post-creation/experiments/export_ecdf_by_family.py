@@ -40,7 +40,7 @@ def main():
     rng = np.random.default_rng(42)
     print(f"\n{'family':<13}{'users':>8}{'gaps':>10}{'p25':>7}{'p50':>7}{'p75':>7}"
           f"{'p90':>7}{'p99':>8}{'mean':>8}", file=sys.stderr)
-    for family in ("expon", "gamma", "lognorm", "weibull_min", "fisk", "power_tail"):
+    for family in ("expon", "gamma", "lognorm", "weibull_min", "pareto"):
         sub = joined.filter(pl.col("family") == family)
         if sub.height == 0:
             continue

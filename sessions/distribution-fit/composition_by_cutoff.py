@@ -27,7 +27,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 TSV = HERE / "results" / "best_per_user.tsv"
 
-FAMILIES = ["power_tail", "weibull_min", "lognorm", "gamma", "expon", "fisk"]
+FAMILIES = ["pareto", "weibull_min", "lognorm", "gamma", "expon"]
 CUTOFFS = [0, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 200, 300, 500, 750, 1000]
 
 

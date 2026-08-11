@@ -2,7 +2,7 @@
 
 Selection: min AIC per (did, col). pareto/lomax/genpareto are reported both
 concretely (distribution — what you sample from) and grouped (family
-"power_tail" — the near-identical siblings for headline numbers).
+"pareto" — the near-identical siblings for headline numbers).
 
 Activity threshold enforced HERE for the whole pipeline: only users with
 >= 30 duration obs AND >= 30 gap obs are kept (fits are per-user, so this is
@@ -30,7 +30,7 @@ MIN_OBS = 30  # per column; user must clear it on BOTH duration and gap
 
 
 def family(d):
-    return "power_tail" if d in POWER_TAIL else d
+    return "pareto" if d in POWER_TAIL else d
 
 
 def main():
