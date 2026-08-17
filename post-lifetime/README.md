@@ -5,12 +5,22 @@ and how reposts propagate through the social graph.
 
 ## Data
 
-Reads from `../cascade-metrics/results/` (produced by `cascade-creation/`):
+| Dataset | Produced by | Contents |
+|---|---|---|
+| `pau_db.post_lifetime` | `sql/02_compute_post_lifetime.sql` (from `cascade_edges` + `cascades`) | Per-post: T_50, T_95, T_99, time_to_peak (deltas from creation) |
+| `repost_gaps` | `go/` binary (`build_lifetime`) | Per-repost: global_gap, topology_gap (NULL for first), parent_did |
 
-| File | Contents |
-|---|---|
-| `post_lifetime.parquet` | Per-post: T_50, T_95, T_99, time_to_peak (deltas from creation) |
-| `repost_gaps.parquet` | Per-repost: global_gap, topology_gap, parent_did |
+`post_lifetime` is pure SQL — the same definition as the simulation-side query
+(`des-ctic/dataset/queries/post_lifetime.sql.tmpl`). Keep the two in sync.
+
+```bash
+# 1. Repost gaps (needs cascades.tsv from cascade-creation/01_dump_reposts.sql)
+cd go && go build -o ../build_lifetime .
+./build_lifetime [-output dir] <cascades.tsv>
+
+# 2. Post lifetime (after cascades + cascade_edges are loaded)
+mysql -h 10.18.74.14 -P 9030 -u pau -p pau_db < sql/02_compute_post_lifetime.sql
+```
 
 ## Quick SQL (DuckDB)
 
@@ -35,7 +45,7 @@ SELECT
     PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY topology_gap_us)/1e6 AS p90_gap_s,
     AVG(topology_gap_us)/1e6 AS avg_gap_s
 FROM read_parquet('../cascade-metrics/results/repost_gaps.parquet')
-WHERE topology_gap_us >= 0;
+WHERE topology_gap_us IS NOT NULL;
 
 -- Time to peak by cascade size
 SELECT

@@ -1,6 +1,8 @@
 package main
 
-import "math"
+// post_lifetime metrics (T_50/95/99, time_to_peak) are computed in SQL,
+// see ../sql/02_compute_post_lifetime.sql. This binary only emits repost gaps.
+
 
 // ─── Raw event from StarRocks query ──────────────────────────────────────
 
@@ -272,113 +274,6 @@ func (c *Cascade) collectPaths(i int, times []float64, paths *[]RootToLeafPath) 
 	for _, child := range children {
 		c.collectPaths(child, append(times, float64(c.Nodes[child].TimeUS)), paths)
 	}
-}
-
-// ─── Post lifetime percentiles ───────────────────────────────────────────
-
-// PostLifetime holds T_50, T_95, T_99 and time_to_peak for one cascade.
-type PostLifetime struct {
-	PostURI          string
-	AuthorDID        string
-	CreationTimeUS   int64
-	LastRepostTimeUS int64
-	TotalReposts     int
-	T_50_US          float64
-	T_95_US          float64
-	T_99_US          float64
-	TimeToPeakUS     float64
-}
-
-// Lifetime computes percentile timings relative to post creation.
-// Returns nil for single-node cascades.
-func (c *Cascade) Lifetime() *PostLifetime {
-	n := c.NumNodes()
-	if n <= 1 {
-		return nil
-	}
-
-	N := n - 1 // repost count
-	creationTime := c.Nodes[0].TimeUS
-	lastTime := c.Nodes[n-1].TimeUS
-
-	return &PostLifetime{
-		PostURI:          c.PostURI,
-		AuthorDID:        c.Nodes[0].ActorDID,
-		CreationTimeUS:   creationTime,
-		LastRepostTimeUS: lastTime,
-		TotalReposts:     N,
-		T_50_US:          c.repostTimeAtPct(0.50) - float64(creationTime),
-		T_95_US:          c.repostTimeAtPct(0.95) - float64(creationTime),
-		T_99_US:          c.repostTimeAtPct(0.99) - float64(creationTime),
-		TimeToPeakUS:     c.timeToPeak() - float64(creationTime),
-	}
-}
-
-// repostTimeAtPct returns the timestamp of the repost at percentile p of all
-// reposts. p=0.50 → time of the median repost.
-func (c *Cascade) repostTimeAtPct(p float64) float64 {
-	N := c.NumNodes() - 1
-	if N <= 0 {
-		return float64(c.Nodes[0].TimeUS)
-	}
-	idx := int(math.Ceil(p*float64(N))) - 1
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= N {
-		idx = N - 1
-	}
-	return float64(c.Nodes[idx+1].TimeUS) // +1 because index 0 is root
-}
-
-// timeToPeak finds the densest 1% bin of repost activity and returns the
-// timestamp of the first repost in that bin.
-func (c *Cascade) timeToPeak() float64 {
-	n := c.NumNodes()
-	if n <= 2 {
-		return float64(c.Nodes[0].TimeUS)
-	}
-
-	creationTime := float64(c.Nodes[0].TimeUS)
-	lastTime := float64(c.Nodes[n-1].TimeUS)
-	span := lastTime - creationTime
-	if span <= 0 {
-		return creationTime
-	}
-
-	const numBins = 100
-	var bins [100]int
-	var binFirstTime [100]float64
-	for i := range binFirstTime {
-		binFirstTime[i] = -1
-	}
-
-	for i := 1; i < n; i++ {
-		t := float64(c.Nodes[i].TimeUS)
-		bin := int((t - creationTime) / span * float64(numBins))
-		if bin >= numBins {
-			bin = numBins - 1
-		}
-		if bin < 0 {
-			bin = 0
-		}
-		bins[bin]++
-		if binFirstTime[bin] < 0 {
-			binFirstTime[bin] = t
-		}
-	}
-
-	maxBin := 0
-	for b := 1; b < numBins; b++ {
-		if bins[b] > bins[maxBin] {
-			maxBin = b
-		}
-	}
-
-	if binFirstTime[maxBin] >= 0 {
-		return binFirstTime[maxBin]
-	}
-	return creationTime
 }
 
 // ─── Per-repost gaps ─────────────────────────────────────────────────────

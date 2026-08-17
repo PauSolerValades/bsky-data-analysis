@@ -8,8 +8,8 @@ CREATE TABLE repost_gaps (
     reposter_did        VARCHAR(128) NOT NULL,
     repost_time_us      BIGINT       NOT NULL,
     parent_did          VARCHAR(128) NOT NULL,
-    global_gap_us       DOUBLE       NOT NULL,
-    topology_gap_us     DOUBLE       NOT NULL
+    global_gap_us       DOUBLE,      -- NULL for the first repost in the cascade
+    topology_gap_us     DOUBLE       -- NULL for the first repost from each parent
 )
 PRIMARY KEY (post_uri, reposter_did, repost_time_us)
 DISTRIBUTED BY HASH(post_uri) BUCKETS 32;

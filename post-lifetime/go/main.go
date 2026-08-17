@@ -30,11 +30,6 @@ func main() {
 	gw := bufio.NewWriter(gf)
 	defer gw.Flush()
 
-	lf, _ := os.Create(*outDir + "/post_lifetime_rows.csv")
-	defer lf.Close()
-	lw := bufio.NewWriter(lf)
-	defer lw.Flush()
-
 	f, err := os.Open(tsvPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cannot open %s: %v\n", tsvPath, err)
@@ -82,7 +77,7 @@ func main() {
 
 		if subjectURI != currentPost {
 			if !first {
-				writeCascade(currentPost, currentEvents, gw, lw)
+				writeCascade(currentPost, currentEvents, gw)
 				totalCascades++
 				if totalCascades%100000 == 0 {
 					fmt.Fprintf(os.Stderr, "  %d cascades...\n", totalCascades)
@@ -101,35 +96,36 @@ func main() {
 		fmt.Fprintf(os.Stderr, "scan error: %v\n", err)
 	}
 	if len(currentEvents) > 0 {
-		writeCascade(currentPost, currentEvents, gw, lw)
+		writeCascade(currentPost, currentEvents, gw)
 		totalCascades++
 	}
 
 	gw.Flush()
-	lw.Flush()
 
 	fmt.Fprintf(os.Stderr, "\nDone. %d cascades.\n", totalCascades)
-	fmt.Fprintf(os.Stderr, "Output: %s/repost_gaps_rows.csv, %s/post_lifetime_rows.csv\n", *outDir, *outDir)
+	fmt.Fprintf(os.Stderr, "Output: %s/repost_gaps_rows.csv\n", *outDir)
 }
 
-func writeCascade(postURI string, events []RawEvent, gw, lw *bufio.Writer) {
+// gapOrNull renders the -1 sentinel (first repost / first from parent) as
+// \N, which StarRocks LOAD DATA reads as NULL.
+func gapOrNull(v float64) string {
+	if v < 0 {
+		return `\N`
+	}
+	return strconv.FormatFloat(v, 'f', 6, 64)
+}
+
+func writeCascade(postURI string, events []RawEvent, gw *bufio.Writer) {
 	c := BuildCascade(postURI, events)
 	if c == nil {
 		return
 	}
 
 	for _, g := range c.RawGaps() {
-		fmt.Fprintf(gw, "\"%s\",\"%s\",%d,\"%s\",%.6f,%.6f\n",
+		fmt.Fprintf(gw, "\"%s\",\"%s\",%d,\"%s\",%s,%s\n",
 			g.PostURI, g.ReposterDID, g.RepostTimeUS,
-			g.ParentDID, g.GlobalGapUS, g.TopologyGapUS,
+			g.ParentDID, gapOrNull(g.GlobalGapUS), gapOrNull(g.TopologyGapUS),
 		)
 	}
 
-	if lt := c.Lifetime(); lt != nil {
-		fmt.Fprintf(lw, "\"%s\",\"%s\",%d,%d,%d,%.6f,%.6f,%.6f,%.6f\n",
-			lt.PostURI, lt.AuthorDID, lt.CreationTimeUS,
-			lt.LastRepostTimeUS, lt.TotalReposts,
-			lt.T_50_US, lt.T_95_US, lt.T_99_US, lt.TimeToPeakUS,
-		)
-	}
 }
