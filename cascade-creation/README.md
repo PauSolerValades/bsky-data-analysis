@@ -6,9 +6,14 @@ single streaming pass.
 ## Pipeline
 
 ```
-bsky.posts + bsky.records  →  mysql dump  →  TSV  →  build_cascades  →  5 parquet files
-         (~3 min)                    (~8 min)
+pau_db.actions →  mysql dump  →  TSV  →  build_cascades  →  5 parquet files
+ (~2 min)                    (~8 min)
 ```
+
+`pau_db.actions` is the firehose "action trace" (built by
+`eda-raw-dataset/create_actions_table.py` from `bsky.posts` + `bsky.records`):
+per-event `did, time_us, event_type, rkey, subject_uri, via_uri`, on the same
+user-side `created_at` clock as sessions.
 
 ## Output
 
