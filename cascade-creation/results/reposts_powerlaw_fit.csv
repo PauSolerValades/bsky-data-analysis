@@ -1,0 +1,11 @@
+metric,value
+n_posts,2493540
+max_reposts,12719
+alpha,2.053
+alpha_sigma,0.002
+xmin,12
+tail_posts_pct,9.85
+tail_reposts_share_pct,72.49
+llr_R,-16.84
+llr_p,1.18e-63
+llr_winner,lognormal favored
